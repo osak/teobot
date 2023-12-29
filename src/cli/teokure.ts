@@ -88,7 +88,9 @@ class TeokureCli {
             }
         } catch (e) {
             this.logger.error(`ChatGPT returned error: ${e}`);
-            await this.mastodon.postStatus(`@${status.account.acct} エラーが発生しました`, status.id);
+            if (!this.dryRun) {
+                await this.mastodon.postStatus(`@${status.account.acct} エラーが発生しました`, status.id);
+            }
             return;
         }
     }

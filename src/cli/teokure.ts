@@ -4,7 +4,7 @@ dotenv.config();
 import { Mastodon, Status } from '../mastodon';
 import { GlobalContext, Env } from '../globalContext';
 import * as readline from 'readline/promises';
-import { AssistantMessage, ChatGPT, Message, UserMessage } from '../chatgpt';
+import { AssistantMessage, ChatCompletion, ChatGPT, Message, UserMessage } from '../chatgpt';
 import { stripHtmlTags } from '../util';
 import { Logger } from '../logging';
 import { setTimeout } from 'timers/promises';
@@ -65,24 +65,31 @@ class TeokureCli {
 
         const mentionText = stripHtmlTags(status.content);
         this.logger.info(`${mentionText}`);
-        const reply = await this.chatGPT.chat(context, { role: 'user', content: mentionText, name: status.account.username });
-        this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
 
-        const content = reply.message.content!!.replace(/@/g, '@ ');
-        let replyText;
-        if (content.length > 450) {
-            replyText = `@${status.account.acct} 文字数上限を超えました`;
-        } else {
-            replyText = `@${status.account.acct} ${content}`;
-        }
-        this.logger.info(`${replyText}`);
+        try {
+            const reply = await this.chatGPT.chat(context, { role: 'user', content: mentionText, name: status.account.username });
+            this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
 
-        if (!this.dryRun) {
-            try {
-                await this.mastodon.postStatus(replyText, status.id);
-            } catch (e) {
-                this.logger.error(`Error: ${e}`);
+            const content = reply.message.content!!.replace(/@/g, '@ ');
+            let replyText;
+            if (content.length > 450) {
+                replyText = `@${status.account.acct} 文字数上限を超えました`;
+            } else {
+                replyText = `@${status.account.acct} ${content}`;
             }
+            this.logger.info(`${replyText}`);
+
+            if (!this.dryRun) {
+                try {
+                    await this.mastodon.postStatus(replyText, status.id);
+                } catch (e) {
+                    this.logger.error(`Error: ${e}`);
+                }
+            }
+        } catch (e) {
+            this.logger.error(`ChatGPT returned error: ${e}`);
+            await this.mastodon.postStatus(`@${status.account.acct} エラーが発生しました`, status.id);
+            return;
         }
     }
 

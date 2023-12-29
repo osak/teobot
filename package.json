@@ -1,0 +1,25 @@
+{
+  "name": "teokure-robot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.ts",
+  "scripts": {
+    "cli-chat": "ts-node src/cli/chat.ts",
+    "cli-mastodon": "ts-node src/cli/mastodon.ts",
+    "cli-teokure": "ts-node src/cli/teokure.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Osamu Koga (osa_k)",
+  "license": "GPLv3",
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "esbuild": "^0.19.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "^0.4.4",
+    "dotenv": "^16.3.1",
+    "zod": "^3.22.4"
+  }
+}

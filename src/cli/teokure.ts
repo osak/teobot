@@ -67,7 +67,12 @@ class TeokureCli {
         this.logger.info(`${mentionText}`);
 
         try {
-            const reply = await this.chatGPT.chat(context, { role: 'user', content: mentionText, name: status.account.username });
+            let username = status.account.username;
+            // Due to completely unknown reasons, 'brsywe' as a username breaks ChatGPT
+            if (username === 'brsywe') {
+                username += '1';
+            }
+            const reply = await this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username });
             this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
 
             const content = reply.message.content!!.replace(/@/g, '@ ');

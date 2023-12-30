@@ -108,7 +108,7 @@ export class ChatGPT {
                 type: 'function',
                 function:{
                     name: 'get_current_date_and_time',
-                    description: '現在の日付と時刻を ISO8859 形式の文字列で返します。'
+                    description: '現在の日付と時刻を ISO8601 形式の文字列で返します。'
                 }
             }],
         };

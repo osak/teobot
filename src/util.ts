@@ -1,3 +1,6 @@
+import { Logger } from './logging';
+import { setTimeout } from 'timers/promises';
+
 export function padRight(s: string, minWidth: number): string {
     const diff = minWidth - s.length;
     if (diff <= 0) {
@@ -36,4 +39,34 @@ export function queryString(params: { [key: string]: string | string[] | undefin
 
 export function stripHtmlTags(text: string): string {
     return text.replaceAll(/<br \/>/g, " ").replaceAll(/<[^>]+>/g, '');
+}
+
+export interface RetryConfig {
+    maxAttempts: number;
+    label?: string;
+}
+
+export async function withRetry<T>(config: Partial<RetryConfig>, body: () => Promise<T>): Promise<T> {
+    const fullConfig: RetryConfig = {
+        maxAttempts: 3,
+        label: '__unnamed__',
+        ...config,
+    };
+    const logger = Logger.createLogger(`retry-${config.label}`);
+
+    for (let i = 1; i <= fullConfig.maxAttempts; ++i) {
+        try {
+            return await body();
+        } catch (e) {
+            if (i === fullConfig.maxAttempts) {
+                throw new Error(`withRetry(label=${fullConfig.label}): Retry exhausted`, { cause: e });
+            } else {
+                const backoff = 10;
+                logger.info(`Attempt ${i} failed. Retry in ${backoff} seconds: ${e}`);
+                await setTimeout(backoff * 1000);
+            }
+        }
+    }
+
+    throw new Error('Bug: unreachable code');
 }

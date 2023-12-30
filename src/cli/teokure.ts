@@ -5,7 +5,7 @@ import { Mastodon, Status } from '../mastodon';
 import { GlobalContext, Env } from '../globalContext';
 import * as readline from 'readline/promises';
 import { AssistantMessage, ChatCompletion, ChatGPT, Message, UserMessage } from '../chatgpt';
-import { stripHtmlTags } from '../util';
+import { stripHtmlTags, withRetry } from '../util';
 import { Logger } from '../logging';
 import { setTimeout } from 'timers/promises';
 import { readFile, writeFile } from 'fs/promises';
@@ -53,7 +53,7 @@ class TeokureCli {
 - チャットの入力が@xxxという形式のメンションで始まっていることがありますが、これらは無視してください。
         `);
 
-        const replyTree = await this.mastodon.getReplyTree(status.id);
+        const replyTree = await withRetry({ label: 'reply-tree' }, () => this.mastodon.getReplyTree(status.id));
         const history: Message[] = replyTree.ancestors.map((s) => {
             if (s.account.id === this.myAccountId) {
                 return { role: 'assistant', content: stripHtmlTags(s.content) } satisfies AssistantMessage;
@@ -72,7 +72,7 @@ class TeokureCli {
             if (username === 'brsywe') {
                 username += '1';
             }
-            const reply = await this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username });
+            const reply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username }));
             this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
 
             const content = reply.message.content!!.replace(/@/g, '@ ');
@@ -85,11 +85,7 @@ class TeokureCli {
             this.logger.info(`${replyText}`);
 
             if (!this.dryRun) {
-                try {
-                    await this.mastodon.postStatus(replyText, status.id);
-                } catch (e) {
-                    this.logger.error(`Error: ${e}`);
-                }
+                await this.mastodon.postStatus(replyText, status.id);
             }
         } catch (e) {
             this.logger.error(`ChatGPT returned error: ${e}`);
@@ -110,7 +106,7 @@ class TeokureCli {
                 break;
             }
             case 'process_new_replies': {
-                const mentions = (await this.mastodon.getAllNotifications(['mention'], this.state.lastNotificationId))
+                const mentions = (await withRetry({ label: 'notifications' }, () => this.mastodon.getAllNotifications(['mention'], this.state.lastNotificationId)))
                     .filter((m) => m.account.id !== this.myAccountId);
                 for (const mention of mentions) {
                     try {
@@ -163,7 +159,11 @@ class TeokureCli {
     async runServer() {
         this.dryRun = false;
         while (true) {
-            await this.runCommand('process_new_replies');
+            try {
+                await this.runCommand('process_new_replies');
+            } catch (e) {
+                this.logger.error(`Failed to process new replies: ${e}`);
+            }
             await setTimeout(30 * 1000);
         }
     }

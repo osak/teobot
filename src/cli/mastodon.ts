@@ -2,14 +2,14 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 import { Mastodon } from '../mastodon';
-import { GlobalContext, Env } from '../globalContext';
+import * as GlobalContext from '../globalContext';
 import * as readline from 'readline/promises';
 import { stripHtmlTags } from '../util';
 
 class MastodonCli {
     readonly mastodon: Mastodon
 
-    constructor(env: Env) {
+    constructor(env: GlobalContext.Env) {
         this.mastodon = new Mastodon(env.MASTODON_BASE_URL, env.MASTODON_CLIENT_KEY, env.MASTODON_CLIENT_SECRET, env.MASTODON_ACCESS_TOKEN);
     }
 
@@ -28,7 +28,7 @@ class MastodonCli {
             case 'replies': {
                 const mentions = await this.mastodon.getAllNotifications(['mention']);
                 for (const mention of mentions) {
-                    const status = mention.status!!;
+                    const status = mention.status!;
                     console.log(`${mention.id}: ${status.account.acct}: ${stripHtmlTags(status.content)}`);
                 }
                 break;

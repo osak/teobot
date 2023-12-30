@@ -2,7 +2,7 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 import * as readline from 'readline/promises';
-import { GlobalContext } from '../globalContext';
+import * as GlobalContext from '../globalContext';
 
 async function main() {
     const rl = readline.createInterface({

@@ -2,9 +2,9 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 import { Mastodon, Status } from '../mastodon';
-import { GlobalContext, Env } from '../globalContext';
+import * as GlobalContext from '../globalContext';
 import * as readline from 'readline/promises';
-import { AssistantMessage, ChatCompletion, ChatGPT, Message, UserMessage } from '../chatgpt';
+import { AssistantMessage, ChatGPT, Message, UserMessage } from '../chatgpt';
 import { stripHtmlTags, withRetry } from '../util';
 import { Logger } from '../logging';
 import { setTimeout } from 'timers/promises';
@@ -12,7 +12,7 @@ import { readFile, writeFile } from 'fs/promises';
 
 interface State {
     lastNotificationId?: string;
-};
+}
 
 class TeokureCli {
     private readonly logger: Logger = Logger.createLogger('teokure-cli');
@@ -23,7 +23,7 @@ class TeokureCli {
     private dataPath: string;
     private dryRun: boolean;
 
-    constructor(env: Env) {
+    constructor(env: GlobalContext.Env) {
         this.chatGPT = new ChatGPT(env.CHAT_GPT_API_KEY);
         this.mastodon = new Mastodon(env.MASTODON_BASE_URL, env.MASTODON_CLIENT_KEY, env.MASTODON_CLIENT_SECRET, env.MASTODON_ACCESS_TOKEN);
         this.dataPath = `${env.TEOKURE_STORAGE_PATH}/state.json`;
@@ -75,7 +75,7 @@ class TeokureCli {
             const reply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username }));
             this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
 
-            const content = reply.message.content!!.replace(/@/g, '@ ');
+            const content = reply.message.content!.replace(/@/g, '@ ');
             let replyText;
             if (content.length > 450) {
                 replyText = `@${status.account.acct} 文字数上限を超えました`;
@@ -110,8 +110,8 @@ class TeokureCli {
                     .filter((m) => m.account.id !== this.myAccountId);
                 for (const mention of mentions) {
                     try {
-                        console.log(`${mention.id}: ${mention.status!!.content}`);
-                        await this.replyToStatus(mention.status!!);
+                        console.log(`${mention.id}: ${mention.status!.content}`);
+                        await this.replyToStatus(mention.status!);
                     } catch (e) {
                         this.logger.error(`Failed to process message (id=${mention.id}): ${e}`);
                     }

@@ -115,7 +115,7 @@ export class ChatGPT {
     }
 
     async chat(context: ChatContext, message: UserMessage): Promise<ChatResponse> {
-        let currentContext = { ...context, history: [...context.history, message] };
+        const currentContext = { ...context, history: [...context.history, message] };
 
         for (let i = 0; i < 5; ++i) {
             const response = await this.doChat(currentContext);

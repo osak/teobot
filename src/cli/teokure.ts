@@ -111,10 +111,14 @@ class TeokureCli {
             }
             case 'process_new_replies': {
                 const mentions = (await this.mastodon.getAllNotifications(['mention'], this.state.lastNotificationId))
-                    .filter((m) => m.account.acct !== 'teokure_robot');
+                    .filter((m) => m.account.id !== this.myAccountId);
                 for (const mention of mentions) {
-                    console.log(`${mention.id}: ${mention.status!!.content}`);
-                    await this.replyToStatus(mention.status!!);
+                    try {
+                        console.log(`${mention.id}: ${mention.status!!.content}`);
+                        await this.replyToStatus(mention.status!!);
+                    } catch (e) {
+                        this.logger.error(`Failed to process message (id=${mention.id}): ${e}`);
+                    }
                 }
                 if (mentions.length > 0) {
                     this.state.lastNotificationId = mentions[0].id;

@@ -7,6 +7,7 @@
     "cli-chat": "ts-node src/cli/chat.ts",
     "cli-mastodon": "ts-node src/cli/mastodon.ts",
     "cli-teokure": "ts-node src/cli/teokure.ts",
+    "build-env-file": "ts-node src/build/buildEnvFile.ts",
     "lint": "eslint src",
     "lint:fix": "eslint --fix src",
     "test": "echo \"Error: no test specified\" && exit 1"

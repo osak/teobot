@@ -1,5 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { Logger } from "./logging";
+import { env } from './globalContext';
 
 type Role = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -104,13 +105,22 @@ export class ChatGPT {
         }
         return {
             history: [instructionMessage],
-            tools: [{
-                type: 'function',
-                function:{
-                    name: 'get_current_date_and_time',
-                    description: '現在の日付と時刻を ISO8601 形式の文字列で返します。'
+            tools: [
+                {
+                    type: 'function',
+                    function: {
+                        name: 'get_current_date_and_time',
+                        description: '現在の日付と時刻を ISO8601 形式の文字列で返します。'
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'get_current_version',
+                        description: 'ておくれロボのバージョン情報を返します。'
+                    }
                 }
-            }],
+            ],
         };
     }
 
@@ -174,6 +184,12 @@ export class ChatGPT {
         switch (toolCall.function.name) {
             case 'get_current_date_and_time':
                 return Temporal.Now.zonedDateTimeISO('Asia/Tokyo').toString({timeZoneName: 'never'});
+            case 'get_current_version':
+                return JSON.stringify({
+                    buildDate: Temporal.Instant.fromEpochSeconds(env.BUILD_TIMESTAMP)
+                        .toZonedDateTimeISO('Asia/Tokyo')
+                        .toString({ timeZoneName: 'never' }),
+                });
         }
         throw new Error(`unsupported function call: ${toolCall.function.name}`);
     }

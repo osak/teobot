@@ -1,7 +1,7 @@
 FROM node:18-alpine
 
 COPY src /opt/teobot/src
-COPY package.json package-lock.json tsconfig.json /opt/teobot/
+COPY build/env.json package.json package-lock.json tsconfig.json /opt/teobot/
 WORKDIR "/opt/teobot"
 
 RUN npm install

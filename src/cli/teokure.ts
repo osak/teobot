@@ -68,10 +68,6 @@ class TeokureCli {
 
         try {
             let username = status.account.username;
-            // Due to completely unknown reasons, 'brsywe' as a username breaks ChatGPT
-            if (username === 'brsywe') {
-                username += '1';
-            }
             const reply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username }));
             this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
 

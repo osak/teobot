@@ -154,7 +154,7 @@ export class ChatGPT {
 
     private async doChat(chatContext: ChatContext): Promise<AssistantMessage> {
         const completion = await this.api<ChatCompletion, ChatRequest>('https://api.openai.com/v1/chat/completions', {
-            model: 'gpt-3.5-turbo',
+            model: 'gpt-4-1106-preview',
             messages: chatContext.history,
             tools: chatContext.tools
         });

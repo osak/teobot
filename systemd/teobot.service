@@ -1,0 +1,12 @@
+[Unit]
+Description=teobot main server
+
+[Service]
+Type=exec
+ExecStart=bash systemd/cli-teokure-start.sh
+WorkingDirectory=/home/osak/teobot
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

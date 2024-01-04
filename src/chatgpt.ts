@@ -1,6 +1,7 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { Logger } from "./logging";
 import { env } from './globalContext';
+import { JmaApi } from "./api/jma";
 
 type Role = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -95,8 +96,11 @@ export interface ChatResponse {
 
 export class ChatGPT {
     private readonly logger = Logger.createLogger('chatgpt');
+    private readonly jmaApi: JmaApi;
 
-    constructor(readonly apiKey: string) {}
+    constructor(readonly apiKey: string) {
+        this.jmaApi = new JmaApi();
+    }
 
     newChatContext(instruction: string): ChatContext {
         const instructionMessage: SystemMessage = {
@@ -118,6 +122,30 @@ export class ChatGPT {
                     function: {
                         name: 'get_current_version',
                         description: 'ておくれロボのバージョン情報を返します。'
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'get_area_code_mapping',
+                        description: '都道府県名からエリアコードへのマッピングを返します。このエリアコードは天気予報APIで使うことができます。'
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'get_weather_forecast',
+                        description: '直近3日の天気予報を返します。',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                areaCode: {
+                                    description: '天気予報を取得したい地域のエリアコード',
+                                    type: "string",
+                                }
+                            },
+                            required: ['areaCode'],
+                        }
                     }
                 }
             ],
@@ -190,6 +218,18 @@ export class ChatGPT {
                         .toZonedDateTimeISO('Asia/Tokyo')
                         .toString({ timeZoneName: 'never' }),
                 });
+            case 'get_area_code_mapping':
+                return JSON.stringify(this.jmaApi.getAreaCodeMap());
+            case 'get_weather_forecast': {
+                try {
+                    const params = JSON.parse(toolCall.function.arguments);
+                    const forecast = await this.jmaApi.getWeatherForecast(params.areaCode);
+                    return JSON.stringify(forecast);
+                } catch (e) {
+                    this.logger.error(`Failed to retrieve weather forecast`, e);
+                    return JSON.stringify({ error: `Failed to retrieve weather forecast` });
+                }
+            }
         }
         throw new Error(`unsupported function call: ${toolCall.function.name}`);
     }

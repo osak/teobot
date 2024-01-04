@@ -18,8 +18,15 @@ export class Logger {
         this.log('warn', message);
     }
 
-    error(message: string) {
-        this.log('error', message);
+    error(message: string, cause?: unknown) {
+        let fullMessage = message;
+        if (cause instanceof Error) {
+            fullMessage += `\n${cause.message}`;
+            if (cause.stack) {
+                fullMessage += `\nStacktrace:\n${cause.stack}`;
+            }
+        }
+        this.log('error', fullMessage);
     }
 
     log(level: LogLevel, message: string) {

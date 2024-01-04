@@ -67,7 +67,7 @@ class TeokureCli {
         this.logger.info(`${mentionText}`);
 
         try {
-            let username = status.account.username;
+            const username = status.account.username;
             const reply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username }));
             this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
 

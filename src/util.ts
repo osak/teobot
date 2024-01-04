@@ -1,6 +1,8 @@
 import { Logger } from './logging';
 import { setTimeout } from 'timers/promises';
 
+export type ValueOf<T> = T[keyof T];
+
 export function padRight(s: string, minWidth: number): string {
     const diff = minWidth - s.length;
     if (diff <= 0) {

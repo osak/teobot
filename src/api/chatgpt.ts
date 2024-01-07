@@ -152,7 +152,7 @@ export class ChatGPT {
         };
     }
 
-    async chat(context: ChatContext, message: UserMessage): Promise<ChatResponse> {
+    async chat(context: ChatContext, message: UserMessage | SystemMessage): Promise<ChatResponse> {
         const currentContext = { ...context, history: [...context.history, message] };
 
         for (let i = 0; i < 5; ++i) {

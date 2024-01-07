@@ -69,8 +69,14 @@ class TeokureCli {
 
         try {
             const username = status.account.username;
-            const reply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username }));
+            let reply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username }));
             this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
+
+			if (reply.message.content!.length > 450) {
+				this.logger.info(`Reply is too long. Try to get it summarized`);
+				reply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(reply.newContext, { role: 'system', content: '長すぎるので、400字以内で要約してください' }));
+				this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
+			}
 
             const content = reply.message.content!.replace(/@/g, '@ ');
             let replyText;

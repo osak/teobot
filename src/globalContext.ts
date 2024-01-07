@@ -1,4 +1,4 @@
-import { ChatGPT } from "./chatgpt";
+import { ChatGPT } from "./api/chatgpt";
 import { z } from 'zod';
 import * as fs from 'fs';
 

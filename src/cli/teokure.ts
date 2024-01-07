@@ -1,10 +1,10 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-import { Mastodon, Status } from '../mastodon';
+import { Mastodon, Status } from '../api/mastodon';
 import * as GlobalContext from '../globalContext';
 import * as readline from 'readline/promises';
-import { AssistantMessage, ChatGPT, Message, UserMessage } from '../chatgpt';
+import { AssistantMessage, ChatGPT, Message, UserMessage } from '../api/chatgpt';
 import { stripHtmlTags, withRetry } from '../util';
 import { Logger } from '../logging';
 import { setTimeout } from 'timers/promises';

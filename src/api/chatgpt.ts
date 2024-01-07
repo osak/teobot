@@ -1,7 +1,7 @@
 import { Temporal } from "@js-temporal/polyfill";
-import { Logger } from "./logging";
-import { env } from './globalContext';
-import { JmaApi } from "./api/jma";
+import { Logger } from "../logging";
+import { env } from '../globalContext';
+import { JmaApi } from "./jma";
 
 type Role = 'system' | 'user' | 'assistant' | 'tool';
 

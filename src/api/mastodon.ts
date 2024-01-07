@@ -1,5 +1,5 @@
-import { Logger } from "./logging";
-import { queryString } from "./util";
+import { Logger } from "../logging";
+import { queryString } from "../util";
 
 export interface Account {
     id: string;

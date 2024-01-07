@@ -5,10 +5,11 @@ import { Mastodon, Status } from '../api/mastodon';
 import * as GlobalContext from '../globalContext';
 import * as readline from 'readline/promises';
 import { AssistantMessage, ChatGPT, Message, UserMessage } from '../api/chatgpt';
-import { stripHtmlTags, withRetry } from '../util';
+import { withRetry } from '../util';
 import { Logger } from '../logging';
 import { setTimeout } from 'timers/promises';
 import { readFile, writeFile } from 'fs/promises';
+import { normalizeStatusContent } from '../messageUtil';
 
 interface State {
     lastNotificationId?: string;
@@ -56,14 +57,14 @@ class TeokureCli {
         const replyTree = await withRetry({ label: 'reply-tree' }, () => this.mastodon.getReplyTree(status.id));
         const history: Message[] = replyTree.ancestors.map((s) => {
             if (s.account.id === this.myAccountId) {
-                return { role: 'assistant', content: stripHtmlTags(s.content) } satisfies AssistantMessage;
+                return { role: 'assistant', content: normalizeStatusContent(s) } satisfies AssistantMessage;
             } else {
-                return { role: 'user', content: stripHtmlTags(s.content), name: s.account.username } satisfies UserMessage;
+                return { role: 'user', content: normalizeStatusContent(s), name: s.account.username } satisfies UserMessage;
             }
         });
         context.history = [...context.history, ...history];
 
-        const mentionText = stripHtmlTags(status.content);
+        const mentionText = normalizeStatusContent(status);
         this.logger.info(`${mentionText}`);
 
         try {

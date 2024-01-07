@@ -39,10 +39,6 @@ export function queryString(params: { [key: string]: string | string[] | undefin
     }
 }
 
-export function stripHtmlTags(text: string): string {
-    return text.replaceAll(/<br \/>/g, " ").replaceAll(/<[^>]+>/g, '');
-}
-
 export interface RetryConfig {
     maxAttempts: number;
     label?: string;

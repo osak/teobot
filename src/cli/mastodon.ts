@@ -4,7 +4,7 @@ dotenv.config();
 import { Mastodon } from '../api/mastodon';
 import * as GlobalContext from '../globalContext';
 import * as readline from 'readline/promises';
-import { stripHtmlTags } from '../util';
+import { stripHtmlTags } from '../messageUtil';
 
 class MastodonCli {
     readonly mastodon: Mastodon

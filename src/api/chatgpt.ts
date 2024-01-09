@@ -147,6 +147,28 @@ export class ChatGPT {
                             required: ['areaCode'],
                         }
                     }
+                },
+				{
+                    type: 'function',
+                    function: {
+                        name: 'rand',
+                        description: '整数の乱数を生成します。',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                min: {
+                                    description: '乱数の最小値',
+                                    type: 'integer',
+									default: 0,
+                                },
+								max: {
+									description: '乱数の最大値',
+									type: 'integer',
+									default: 100,
+								}
+                            },
+                        }
+                    }
                 }
             ],
         };
@@ -230,6 +252,19 @@ export class ChatGPT {
                     return JSON.stringify({ error: `Failed to retrieve weather forecast` });
                 }
             }
+			case 'rand': {
+				try {
+					const params = JSON.parse(toolCall.function.arguments);
+					const min = params.min ?? 0;
+					const max = params.max ?? 100;
+					const val = Math.floor(Math.random() * (max - min + 1)) + min;
+					return `${val}`;
+				} catch (e) {
+					this.logger.error(`Failed to generate a random number`, e);
+					return '0';
+				}
+			}
+
         }
         throw new Error(`unsupported function call: ${toolCall.function.name}`);
     }

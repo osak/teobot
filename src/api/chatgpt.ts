@@ -177,7 +177,7 @@ export class ChatGPT {
     async chat(context: ChatContext, message: UserMessage | SystemMessage): Promise<ChatResponse> {
         const currentContext = { ...context, history: [...context.history, message] };
 
-        for (let i = 0; i < 5; ++i) {
+        for (let i = 0; i < 10; ++i) {
             const response = await this.doChat(currentContext);
             currentContext.history.push(response);
             this.logger.info(`ChatGPT response (iter ${i+1}): ${response.content} (calling ${response.tool_calls?.map((t) => t.function.name)})`);

@@ -15,6 +15,8 @@ interface State {
     lastNotificationId?: string;
 }
 
+const HISTORY_CHARS_LIMIT = 1000;
+
 class TeokureCli {
     private readonly logger: Logger = Logger.createLogger('teokure-cli');
     private readonly chatGPT: ChatGPT
@@ -55,13 +57,22 @@ class TeokureCli {
         `);
 
         const replyTree = await withRetry({ label: 'reply-tree' }, () => this.mastodon.getReplyTree(status.id));
-        const history: Message[] = replyTree.ancestors.map((s) => {
-            if (s.account.id === this.myAccountId) {
-                return { role: 'assistant', content: normalizeStatusContent(s) } satisfies AssistantMessage;
+		const history: Message[] = [];
+		let chars = 0;
+		for (const s of replyTree.ancestors.reverse()) {
+			const normalizedContent = normalizeStatusContent(s);
+			chars += normalizedContent.length;
+			if (chars > HISTORY_CHARS_LIMIT) {
+				break;
+			}
+
+			if (s.account.id === this.myAccountId) {
+                history.unshift({ role: 'assistant', content: normalizedContent } satisfies AssistantMessage);
             } else {
-                return { role: 'user', content: normalizeStatusContent(s), name: s.account.username } satisfies UserMessage;
+                history.unshift({ role: 'user', content: normalizedContent, name: s.account.username } satisfies UserMessage);
             }
-        });
+
+		}
         context.history = [...context.history, ...history];
 
         const mentionText = normalizeStatusContent(status);

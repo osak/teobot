@@ -270,6 +270,9 @@ export class ChatGPT {
     }
 
     private async api<T, B = undefined>(url: string, body?: B): Promise<T> {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 90 * 1000);
+
         const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${this.apiKey}`,
@@ -277,7 +280,10 @@ export class ChatGPT {
             },
             body: body && JSON.stringify(body),
             method: 'POST',
+			signal: controller.signal,
         });
+		clearTimeout(timeout);
+
         if (response.status != 200) {
             const text = await response.text();
             throw new Error(text);

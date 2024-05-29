@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker run -d -v "$(pwd)/data:/opt/teobot/data" --name teobot teobot:latest
+docker run --restart always -d -v "$(pwd)/data:/opt/teobot/data" --name teobot teobot:latest

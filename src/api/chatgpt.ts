@@ -2,6 +2,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { Logger } from "../logging";
 import { env } from '../globalContext';
 import { JmaApi } from "./jma";
+import { DallE } from "./dalle";
 
 type Role = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -97,9 +98,11 @@ export interface ChatResponse {
 export class ChatGPT {
     private readonly logger = Logger.createLogger('chatgpt');
     private readonly jmaApi: JmaApi;
+	private readonly dalle: DallE;
 
     constructor(readonly apiKey: string) {
         this.jmaApi = new JmaApi();
+		this.dalle = new DallE(apiKey);
     }
 
     newChatContext(instruction: string): ChatContext {
@@ -169,7 +172,23 @@ export class ChatGPT {
                             },
                         }
                     }
-                }
+                },
+				{
+					type: 'function',
+					function: {
+						name: 'gen_image',
+						description: '指定されたプロンプトから画像を生成します。生成された画像のURLを返します。',
+						parameters: {
+							type: 'object',
+							properties: {
+								prompt: {
+									description: 'DALL·E 3に対するプロンプト',
+									type: 'string',
+								},
+							}
+						},
+					},
+				},
             ],
         };
     }
@@ -264,7 +283,16 @@ export class ChatGPT {
 					return '0';
 				}
 			}
-
+			case 'gen_image': {
+				try {
+					const params = JSON.parse(toolCall.function.arguments);
+					const url = await this.dalle.generateImage(params.prompt, 'teobot');
+					return url;
+				} catch (e) {
+					this.logger.error(`Failed to generate image`, e);
+					return 'error';
+				}
+			}
         }
         throw new Error(`unsupported function call: ${toolCall.function.name}`);
     }

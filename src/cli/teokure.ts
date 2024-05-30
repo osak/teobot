@@ -4,12 +4,13 @@ dotenv.config();
 import { Mastodon, Status } from '../api/mastodon';
 import * as GlobalContext from '../globalContext';
 import * as readline from 'readline/promises';
-import { AssistantMessage, ChatGPT, Message, UserMessage } from '../api/chatgpt';
+import { AssistantMessage, ChatGPT, ChatResponse, Message, UserMessage } from '../api/chatgpt';
 import { withRetry } from '../util';
 import { Logger } from '../logging';
 import { setTimeout } from 'timers/promises';
 import { readFile, writeFile } from 'fs/promises';
 import { normalizeStatusContent } from '../messageUtil';
+import * as fs from 'fs';
 
 interface State {
     lastNotificationId?: string;
@@ -80,35 +81,60 @@ class TeokureCli {
 
         try {
             const username = status.account.username;
-            let reply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username }));
-            this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
+            const rawReply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username }));
+            this.logger.info(`> Response from ChatGPT: ${rawReply.message.content}`);
+			let reply = this.parseReply(rawReply);
 
-			if (reply.message.content!.length > 450) {
+			if (reply.text.length > 450) {
 				this.logger.info(`Reply is too long. Try to get it summarized`);
-				reply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(reply.newContext, { role: 'system', content: '長すぎるので、400字以内で要約してください' }));
-				this.logger.info(`> Response from ChatGPT: ${reply.message.content}`);
+				const newReply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(rawReply.newContext, { role: 'system', content: '長すぎるので、400字以内で要約してください' }));
+				this.logger.info(`> Response from ChatGPT: ${newReply.message.content}`);
+				reply = this.parseReply(newReply);
 			}
 
-            const content = reply.message.content!.replace(/@/g, '@ ');
+            const content = reply.text.replace(/@/g, '@ ');
             let replyText;
             if (content.length > 450) {
                 replyText = `@${status.account.acct} 文字数上限を超えました`;
+				reply.imageUrl = undefined;
             } else {
                 replyText = `@${status.account.acct} ${content}`;
             }
             this.logger.info(`${replyText}`);
 
             if (!this.dryRun) {
-                await this.mastodon.postStatus(replyText, status.id);
+				if (reply.imageUrl != undefined) {
+					// Download the image
+					this.logger.info(`Downloading ${reply.imageUrl}`);
+					const response = await fetch(reply.imageUrl);
+					const imageBuffer = await response.arrayBuffer();
+					this.logger.info("Uploading media");
+					const media = await this.mastodon.uploadImage(Buffer.from(imageBuffer));
+					this.logger.info(JSON.stringify(media, undefined, 2));
+					await this.mastodon.postStatus(replyText, status.id, [media.id], status.visibility);
+				} else {
+					await this.mastodon.postStatus(replyText, status.id, undefined, status.visibility);
+				}
             }
         } catch (e) {
             this.logger.error(`ChatGPT returned error: ${e}`);
             if (!this.dryRun) {
-                await this.mastodon.postStatus(`@${status.account.acct} エラーが発生しました`, status.id);
+                await this.mastodon.postStatus(`@${status.account.acct} エラーが発生しました`, status.id, undefined, status.visibility);
             }
             return;
         }
     }
+
+	private parseReply(reply: ChatResponse): { imageUrl?: string, text: string } {
+		const foundImage = reply.message.content!.match(/!\[.*\]\(([^\)]+)\)/d);
+		if (foundImage) {
+			const imageUrl = foundImage[1];
+			const text = reply.message.content!.substring(0, foundImage.index) + reply.message.content!.substring(foundImage.indices![0][1]);
+			return { imageUrl, text };
+		} else {
+			return { text: reply.message.content! };
+		}
+	}
 
     async runCommand(commandStr: string) {
         const [command, rest] = commandStr.split(/\s+/, 2);

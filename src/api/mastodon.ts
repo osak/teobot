@@ -8,6 +8,8 @@ export interface Account {
     display_name: string;
 }
 
+export type Visibility = 'public' | 'unlisted' | 'private' | 'direct';
+
 export interface Status {
     id: string;
     url: string;
@@ -15,6 +17,7 @@ export interface Status {
     in_reply_to_account_id: string;
     content: string;
     account: Account;
+	visibility: Visibility;
 }
 
 export type NotificationType = 'mention' | 'status' | 'reblog' | 'follow' | 'follow_request' | 'favourite' | 'poll' | 'update';
@@ -63,11 +66,12 @@ export class Mastodon {
         return this.defaultResponseHandler<Context>(await this.api(`/api/v1/statuses/${id}/context`));
     }
 
-    async postStatus(content: string, replyToId?: string, mediaIds?: string[]): Promise<void> {
+    async postStatus(content: string, replyToId?: string, mediaIds?: string[], visibility?: Visibility): Promise<void> {
         const payload = {
             status: content,
             in_reply_to_id: replyToId,
 			media_ids: mediaIds,
+			visibility,
         };
         await this.defaultResponseHandler<void>(await this.api(`/api/v1/statuses`, 'POST', payload));
     }

@@ -82,6 +82,12 @@ export interface ChatCompletion {
 export interface ChatContext {
     history: Message[];
     tools: Tool[];
+	tool_choice?: {
+		type: 'function',
+		function: {
+			name: string,
+		}
+	};
 }
 
 export interface ChatRequest {
@@ -189,8 +195,8 @@ export class ChatGPT {
 						},
 					},
 				},
-            ],
-        };
+			],
+		};
     }
 
     async chat(context: ChatContext, message: UserMessage | SystemMessage): Promise<ChatResponse> {
@@ -292,6 +298,10 @@ export class ChatGPT {
 					this.logger.error(`Failed to generate image`, e);
 					return 'error';
 				}
+			}
+			case 'respond': {
+				console.log(JSON.stringify(toolCall.function.arguments, undefined, 2));
+				break;
 			}
         }
         throw new Error(`unsupported function call: ${toolCall.function.name}`);

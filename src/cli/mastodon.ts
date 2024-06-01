@@ -58,7 +58,7 @@ class MastodonCli {
 				const buffer = fs.readFileSync(path);
 				const res = await this.mastodon.uploadImage(buffer);
 				console.log(JSON.stringify(res, undefined, 2));
-				await this.mastodon.postStatus(text, undefined, [res.id]);
+				await this.mastodon.postStatus(text, { mediaIds: [res.id] });
 				break;
 			}
         }

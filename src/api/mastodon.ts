@@ -20,6 +20,13 @@ export interface Status {
 	visibility: Visibility;
 }
 
+export interface PostStatusOpt {
+	replyToId?: string,
+	mediaIds?: string[],
+	visibility?: Visibility,
+	sensitive?: boolean,
+}
+
 export type NotificationType = 'mention' | 'status' | 'reblog' | 'follow' | 'follow_request' | 'favourite' | 'poll' | 'update';
 
 export interface Notification {
@@ -66,12 +73,13 @@ export class Mastodon {
         return this.defaultResponseHandler<Context>(await this.api(`/api/v1/statuses/${id}/context`));
     }
 
-    async postStatus(content: string, replyToId?: string, mediaIds?: string[], visibility?: Visibility): Promise<void> {
+    async postStatus(content: string, opt?: PostStatusOpt): Promise<void> {
         const payload = {
             status: content,
-            in_reply_to_id: replyToId,
-			media_ids: mediaIds,
-			visibility,
+            in_reply_to_id: opt?.replyToId,
+			media_ids: opt?.mediaIds,
+			visibility: opt?.visibility,
+			sensitive: opt?.sensitive,
         };
         await this.defaultResponseHandler<void>(await this.api(`/api/v1/statuses`, 'POST', payload));
     }

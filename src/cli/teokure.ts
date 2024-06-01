@@ -10,7 +10,6 @@ import { Logger } from '../logging';
 import { setTimeout } from 'timers/promises';
 import { readFile, writeFile } from 'fs/promises';
 import { normalizeStatusContent } from '../messageUtil';
-import * as fs from 'fs';
 
 interface State {
     lastNotificationId?: string;
@@ -111,15 +110,23 @@ class TeokureCli {
 					this.logger.info("Uploading media");
 					const media = await this.mastodon.uploadImage(Buffer.from(imageBuffer));
 					this.logger.info(JSON.stringify(media, undefined, 2));
-					await this.mastodon.postStatus(replyText, status.id, [media.id], status.visibility);
+					await this.mastodon.postStatus(replyText, {
+						replyToId: status.id,
+						mediaIds: [media.id],
+						visibility: status.visibility,
+						sensitive: true,
+					});
 				} else {
-					await this.mastodon.postStatus(replyText, status.id, undefined, status.visibility);
+					await this.mastodon.postStatus(replyText, { replyToId: status.id, visibility: status.visibility });
 				}
             }
         } catch (e) {
             this.logger.error(`ChatGPT returned error: ${e}`);
             if (!this.dryRun) {
-                await this.mastodon.postStatus(`@${status.account.acct} エラーが発生しました`, status.id, undefined, status.visibility);
+                await this.mastodon.postStatus(`@${status.account.acct} エラーが発生しました`, {
+					replyToId: status.id,
+					visibility: status.visibility,
+				});
             }
             return;
         }

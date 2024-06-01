@@ -95,24 +95,27 @@ class TeokureCli {
             let replyText;
             if (content.length > 450) {
                 replyText = `@${status.account.acct} 文字数上限を超えました`;
-				reply.imageUrl = undefined;
+				reply.imageUrls = [];
             } else {
                 replyText = `@${status.account.acct} ${content}`;
             }
             this.logger.info(`${replyText}`);
 
             if (!this.dryRun) {
-				if (reply.imageUrl != undefined) {
-					// Download the image
-					this.logger.info(`Downloading ${reply.imageUrl}`);
-					const response = await fetch(reply.imageUrl);
-					const imageBuffer = await response.arrayBuffer();
-					this.logger.info("Uploading media");
-					const media = await this.mastodon.uploadImage(Buffer.from(imageBuffer));
-					this.logger.info(JSON.stringify(media, undefined, 2));
+				if (reply.imageUrls.length > 0) {
+					// Download images
+					const medias = await Promise.all(reply.imageUrls.map(async (url) => {
+						this.logger.info(`Downloading ${url}`);
+						const response = await fetch(url);
+						const imageBuffer = await response.arrayBuffer();
+						this.logger.info("Uploading media");
+						const media = await this.mastodon.uploadImage(Buffer.from(imageBuffer));
+						this.logger.info(JSON.stringify(media, undefined, 2));
+						return media;
+					}));
 					await this.mastodon.postStatus(replyText, {
 						replyToId: status.id,
-						mediaIds: [media.id],
+						mediaIds: medias.map((m) => m.id),
 						visibility: status.visibility,
 						sensitive: true,
 					});
@@ -132,15 +135,11 @@ class TeokureCli {
         }
     }
 
-	private parseReply(reply: ChatResponse): { imageUrl?: string, text: string } {
-		const foundImage = reply.message.content!.match(/!\[.*\]\(([^\)]+)\)/d);
-		if (foundImage) {
-			const imageUrl = foundImage[1];
-			const text = reply.message.content!.substring(0, foundImage.index) + reply.message.content!.substring(foundImage.indices![0][1]);
-			return { imageUrl, text };
-		} else {
-			return { text: reply.message.content! };
-		}
+	private parseReply(reply: ChatResponse): { text: string, imageUrls: string[] } {
+		return {
+			text: reply.message.content?.replaceAll(/!?\[([^\]]+)\]\([^\)]+\)/g, '$1') ?? '',
+			imageUrls: reply.imageUrls,
+		};
 	}
 
     async runCommand(commandStr: string) {

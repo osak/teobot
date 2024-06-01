@@ -99,6 +99,7 @@ export interface ChatRequest {
 export interface ChatResponse {
     newContext: ChatContext;
     message: Message;
+	imageUrls: string[];
 }
 
 export class ChatGPT {
@@ -202,15 +203,22 @@ export class ChatGPT {
     async chat(context: ChatContext, message: UserMessage | SystemMessage): Promise<ChatResponse> {
         const currentContext = { ...context, history: [...context.history, message] };
 
+		const imageUrls: string[] = [];
         for (let i = 0; i < 10; ++i) {
             const response = await this.doChat(currentContext);
             currentContext.history.push(response);
             this.logger.info(`ChatGPT response (iter ${i+1}): ${response.content} (calling ${response.tool_calls?.map((t) => t.function.name)})`);
             
             if (response.tool_calls !== undefined && response.tool_calls.length > 0) {
-                const toolPromises: Promise<ToolMessage>[] = response.tool_calls.map(async (c) => {
-                    const res = await this.doToolCall(currentContext, c);
+                const toolPromises: Promise<ToolMessage>[] = response.tool_calls.map(async (c, j) => {
+                    let res = await this.doToolCall(currentContext, c);
                     this.logger.info(`Tool call ${c.id}<${c.function.name}>(${c.function.arguments}) => ${res}`);
+					if (c.function.name == 'gen_image') {
+						if (res.startsWith('https://')) {
+							imageUrls.push(res);
+							res = `https://teobot.osak.jp/${i}-${j}.png`; // Dummy URL for placeholder
+						}
+					}
                     return {
                         role: 'tool',
                         content: res,
@@ -234,6 +242,7 @@ export class ChatGPT {
         return {
             newContext: currentContext,
             message: lastMessage,
+			imageUrls,
         };
     }
 

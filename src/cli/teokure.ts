@@ -137,7 +137,7 @@ class TeokureCli {
 
 	private parseReply(reply: ChatResponse): { text: string, imageUrls: string[] } {
 		return {
-			text: reply.message.content?.replaceAll(/!?\[([^\]]+)\]\([^\)]+\)/g, '$1') ?? '',
+			text: reply.message.content?.replaceAll(/!?\[([^\]]+)\]\([^)]+\)/g, '$1') ?? '',
 			imageUrls: reply.imageUrls,
 		};
 	}

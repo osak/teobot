@@ -209,13 +209,14 @@ export class ChatGPT {
             currentContext.history.push(response);
             this.logger.info(`ChatGPT response (iter ${i+1}): ${response.content} (calling ${response.tool_calls?.map((t) => t.function.name)})`);
             
+			const imageUrlsDict: Partial<Record<string, string>> = {};
             if (response.tool_calls !== undefined && response.tool_calls.length > 0) {
                 const toolPromises: Promise<ToolMessage>[] = response.tool_calls.map(async (c, j) => {
                     let res = await this.doToolCall(currentContext, c);
                     this.logger.info(`Tool call ${c.id}<${c.function.name}>(${c.function.arguments}) => ${res}`);
 					if (c.function.name == 'gen_image') {
 						if (res.startsWith('https://')) {
-							imageUrls.push(res);
+							imageUrlsDict[c.id] = res;
 							res = `https://teobot.osak.jp/${i}-${j}.png`; // Dummy URL for placeholder
 						}
 					}
@@ -226,6 +227,12 @@ export class ChatGPT {
                     } satisfies ToolMessage;
                 });
                 const toolMessages = await Promise.all(toolPromises);
+				for (const m of toolMessages) {
+					const imageUrl = imageUrlsDict[m.tool_call_id];
+					if (imageUrl !== undefined) {
+						imageUrls.push(imageUrl);
+					}
+				}
                 currentContext.history.push(...toolMessages);
             } else {
                 break;

@@ -10,6 +10,9 @@ import { Logger } from '../logging';
 import { setTimeout } from 'timers/promises';
 import { readFile, writeFile } from 'fs/promises';
 import { normalizeStatusContent } from '../messageUtil';
+import { TeobotService } from '../service/teobotService';
+import { JmaApi } from '../api/jma';
+import { DallE } from '../api/dalle';
 
 interface State {
     lastNotificationId?: string;
@@ -19,7 +22,7 @@ const HISTORY_CHARS_LIMIT = 1000;
 
 class TeokureCli {
     private readonly logger: Logger = Logger.createLogger('teokure-cli');
-    private readonly chatGPT: ChatGPT
+	private readonly teobotService: TeobotService;
     private readonly mastodon: Mastodon
     private myAccountId?: string;
     private state: State;
@@ -27,7 +30,11 @@ class TeokureCli {
     private dryRun: boolean;
 
     constructor(env: GlobalContext.Env) {
-        this.chatGPT = new ChatGPT(env.CHAT_GPT_API_KEY);
+        this.teobotService = new TeobotService(
+			new ChatGPT(env.CHAT_GPT_API_KEY),
+			new JmaApi(),
+			new DallE(env.CHAT_GPT_API_KEY),
+		);
         this.mastodon = new Mastodon(env.MASTODON_BASE_URL, env.MASTODON_CLIENT_KEY, env.MASTODON_CLIENT_SECRET, env.MASTODON_ACCESS_TOKEN);
         this.dataPath = `${env.TEOKURE_STORAGE_PATH}/state.json`;
         this.state = {};
@@ -45,16 +52,7 @@ class TeokureCli {
             throw new Error('myAccountId is not initialized');
         }
 
-        const context = this.chatGPT.newChatContext(`
-あなたは「ておくれロボ」という名前のチャットボットです。あなたはsocial.mikutter.hachune.netというMastodonサーバーで、teobotというアカウント名で活動しています。
-あなたは無機質なロボットでありながら、おっちょこちょいで憎めない失敗することもある、総合的に見ると愛らしい存在として振る舞うことが期待されています。
-返答を書く際には、以下のルールに従ってください。
-
-- 文体は友達と話すようなくだけた感じにして、「です・ます」調は避けてください。
-- 発言の語尾には必ず「ロボ」を付けてください。例えば「～あるロボ」「～だロボ」といった具合です。
-- 返答は2～3文程度の短さであることが望ましいですが、質問に詳しく答える必要があるなど、必要であれば長くなっても構いません。ただし絶対に400文字は超えないでください。
-- チャットの入力が@xxxという形式のメンションで始まっていることがありますが、これらは無視してください。
-        `);
+        const context = this.teobotService.newChatContext();
 
         const replyTree = await withRetry({ label: 'reply-tree' }, () => this.mastodon.getReplyTree(status.id));
 		const history: Message[] = [];
@@ -80,13 +78,13 @@ class TeokureCli {
 
         try {
             const username = status.account.username;
-            const rawReply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(context, { role: 'user', content: mentionText, name: username }));
+            const rawReply = await withRetry({ label: 'chat' }, () => this.teobotService.chat(context, { role: 'user', content: mentionText, name: username }));
             this.logger.info(`> Response from ChatGPT: ${rawReply.message.content}`);
 			let reply = this.parseReply(rawReply);
 
 			if (reply.text.length > 450) {
 				this.logger.info(`Reply is too long. Try to get it summarized`);
-				const newReply = await withRetry({ label: 'chat' }, () => this.chatGPT.chat(rawReply.newContext, { role: 'system', content: '長すぎるので、400字以内で要約してください' }));
+				const newReply = await withRetry({ label: 'chat' }, () => this.teobotService.chat(rawReply.newContext, { role: 'system', content: '長すぎるので、400字以内で要約してください' }));
 				this.logger.info(`> Response from ChatGPT: ${newReply.message.content}`);
 				reply = this.parseReply(newReply);
 			}

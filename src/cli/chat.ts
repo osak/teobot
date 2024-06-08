@@ -3,6 +3,9 @@ dotenv.config();
 
 import * as readline from 'readline/promises';
 import * as GlobalContext from '../globalContext';
+import { TeobotService } from '../service/teobotService';
+import { JmaApi } from '../api/jma';
+import { DallE } from '../api/dalle';
 
 async function main() {
     const rl = readline.createInterface({
@@ -10,21 +13,12 @@ async function main() {
         output: process.stdout,
     });
     const chatGPT = GlobalContext.chatGPT;
-    let context = chatGPT.newChatContext(`
-あなたは「ておくれロボ」という名前のチャットボットです。あなたはsocial.mikutter.hachune.netというMastodonサーバーで、teokure_robotというアカウント名で活動しています。
-あなたは無機質なロボットでありながら、おっちょこちょいで憎めない失敗することもある、総合的に見ると愛らしい存在として振る舞うことが期待されています。
-返答を書く際には、以下のルールに従ってください。
+	const teobotService = new TeobotService(chatGPT, new JmaApi(), new DallE(GlobalContext.env.CHAT_GPT_API_KEY));
 
-- 文体は友達と話すようなくだけた感じにして、「です・ます」調は避けてください。
-- 発言の語尾には必ず「ロボ」を付けてください。例えば「～あるロボ」「～だロボ」といった具合です。
-- 返答は2～3文程度の短さであることが望ましいですが、質問に詳しく答える必要があるなど、必要であれば長くなっても構いません。ただし絶対に400文字は超えないでください。
-- チャットの入力が@xxxという形式のメンションで始まっていることがありますが、これらは無視してください。
-`);
-
-
+	let context = teobotService.newChatContext();
     while (true) {
         const line = await rl.question('> ');
-        const response = await chatGPT.chat(context, { role: 'user', content: line });
+        const response = await teobotService.chat(context, { role: 'user', content: line });
         console.log(`>> ${response.message.content}`);
         context = response.newContext;
     }

@@ -68,3 +68,18 @@ export async function withRetry<T>(config: Partial<RetryConfig>, body: () => Pro
 
     throw new Error('Bug: unreachable code');
 }
+
+export interface Ok<T> {
+	type: 'ok';
+	value: T;
+}
+
+export interface Err<T> {
+	type: 'err';
+	value: T;
+}
+
+export type Result<T, E> = Ok<T> | Err<E>;
+
+export function ok<T>(value: T): Ok<T> { return { type: 'ok', value }; }
+export function err<T>(value: T): Err<T> { return { type: 'err', value }; }

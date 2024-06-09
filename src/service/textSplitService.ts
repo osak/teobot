@@ -5,9 +5,15 @@ import { Result, err, ok } from "../util";
 export class TextSplitService {
 	private readonly logger = new Logger('textSplitService');
 
-	constructor(private readonly chatGpt: ChatGPT) {}
+	constructor(
+		private readonly chatGpt: ChatGPT,
+		private readonly useChatGpt: boolean = false
+	) {}
 
 	async splitText(text: string, numParts: number): Promise<Result<string[], string>> {
+		if (!this.useChatGpt) {
+			return this.splitTextByLine(text, numParts);
+		}
 		const history: Message[] = [
 			{
 				role: 'system',
@@ -65,6 +71,24 @@ export class TextSplitService {
 		const parts = payload['parts'];
 		if (!(parts instanceof Array)) {
 			return err(`Invalid payload for report_result call: ${payload}`);
+		}
+
+		return ok(parts);
+	}
+
+	private splitTextByLine(text: string, numParts: number): Result<string[], string> {
+		const lines = text.split("\n");
+		const maxPartLen = Math.ceil(text.length / numParts);
+
+		const parts: string[] = [''];
+		for (const line of lines) {
+			const lastIdx = parts.length - 1;
+			if (parts[lastIdx].length + 1 + line.length < maxPartLen) {
+				parts[lastIdx] += "\n";
+				parts[lastIdx] += line;
+			} else {
+				parts.push(line);
+			}
 		}
 
 		return ok(parts);

@@ -73,7 +73,7 @@ export class Mastodon {
         return this.defaultResponseHandler<Context>(await this.api(`/api/v1/statuses/${id}/context`));
     }
 
-    async postStatus(content: string, opt?: PostStatusOpt): Promise<void> {
+    async postStatus(content: string, opt?: PostStatusOpt): Promise<Status> {
         const payload = {
             status: content,
             in_reply_to_id: opt?.replyToId,
@@ -81,7 +81,7 @@ export class Mastodon {
 			visibility: opt?.visibility,
 			sensitive: opt?.sensitive,
         };
-        await this.defaultResponseHandler<void>(await this.api(`/api/v1/statuses`, 'POST', payload));
+        return await this.defaultResponseHandler<Status>(await this.api(`/api/v1/statuses`, 'POST', payload));
     }
 
     async getAllNotifications(types: NotificationType[] = [], sinceId?: string): Promise<Notification[]> {

@@ -5,7 +5,7 @@ import { Mastodon, Status } from '../api/mastodon';
 import * as GlobalContext from '../globalContext';
 import * as readline from 'readline/promises';
 import { AssistantMessage, ChatGPT, ChatResponse, Message, UserMessage } from '../api/chatgpt';
-import { withRetry } from '../util';
+import { Result, err, ok, withRetry } from '../util';
 import { Logger } from '../logging';
 import { setTimeout } from 'timers/promises';
 import { readFile, writeFile } from 'fs/promises';
@@ -13,6 +13,7 @@ import { normalizeStatusContent } from '../messageUtil';
 import { TeobotService } from '../service/teobotService';
 import { JmaApi } from '../api/jma';
 import { DallE } from '../api/dalle';
+import { TextSplitService } from '../service/textSplitService';
 
 interface State {
     lastNotificationId?: string;
@@ -24,18 +25,21 @@ class TeokureCli {
     private readonly logger: Logger = Logger.createLogger('teokure-cli');
 	private readonly teobotService: TeobotService;
     private readonly mastodon: Mastodon
+	private readonly textSplitService: TextSplitService;
     private myAccountId?: string;
     private state: State;
     private dataPath: string;
     private dryRun: boolean;
 
     constructor(env: GlobalContext.Env) {
+		const chatGpt = new ChatGPT(env.CHAT_GPT_API_KEY);
         this.teobotService = new TeobotService(
-			new ChatGPT(env.CHAT_GPT_API_KEY),
+			chatGpt,
 			new JmaApi(),
 			new DallE(env.CHAT_GPT_API_KEY),
 		);
         this.mastodon = new Mastodon(env.MASTODON_BASE_URL, env.MASTODON_CLIENT_KEY, env.MASTODON_CLIENT_SECRET, env.MASTODON_ACCESS_TOKEN);
+		this.textSplitService = new TextSplitService(chatGpt);
         this.dataPath = `${env.TEOKURE_STORAGE_PATH}/state.json`;
         this.state = {};
         this.dryRun = true;
@@ -80,47 +84,56 @@ class TeokureCli {
             const username = status.account.username;
             const rawReply = await withRetry({ label: 'chat' }, () => this.teobotService.chat(context, { role: 'user', content: mentionText, name: username }));
             this.logger.info(`> Response from ChatGPT: ${rawReply.message.content}`);
-			let reply = this.parseReply(rawReply);
-
-			if (reply.text.length > 450) {
-				this.logger.info(`Reply is too long. Try to get it summarized`);
-				const newReply = await withRetry({ label: 'chat' }, () => this.teobotService.chat(rawReply.newContext, { role: 'system', content: '長すぎるので、400字以内で要約してください' }));
-				this.logger.info(`> Response from ChatGPT: ${newReply.message.content}`);
-				reply = this.parseReply(newReply);
+			const repliesRes = await this.parseReply(rawReply);
+			if (repliesRes.type == 'err') {
+				throw new Error(`Failed to parse reply: ${repliesRes.value}`);
 			}
 
-            const content = reply.text.replace(/@/g, '@ ');
-            let replyText;
-            if (content.length > 450) {
-                replyText = `@${status.account.acct} 文字数上限を超えました`;
-				reply.imageUrls = [];
-            } else {
-                replyText = `@${status.account.acct} ${content}`;
-            }
-            this.logger.info(`${replyText}`);
-
-            if (!this.dryRun) {
-				if (reply.imageUrls.length > 0) {
-					// Download images
-					const medias = await Promise.all(reply.imageUrls.map(async (url) => {
-						this.logger.info(`Downloading ${url}`);
-						const response = await fetch(url);
-						const imageBuffer = await response.arrayBuffer();
-						this.logger.info("Uploading media");
-						const media = await this.mastodon.uploadImage(Buffer.from(imageBuffer));
-						this.logger.info(JSON.stringify(media, undefined, 2));
-						return media;
-					}));
-					await this.mastodon.postStatus(replyText, {
-						replyToId: status.id,
-						mediaIds: medias.map((m) => m.id),
-						visibility: status.visibility,
-						sensitive: true,
-					});
+			let replyToId = status.id;
+			let first = true;
+			for (const reply of repliesRes.value) {
+				const content = reply.text.replace(/@/g, '@ ');
+				let replyText;
+				if (content.length > 500) {
+					replyText = `@${status.account.acct} 文字数上限を超えました`;
+					reply.imageUrls = [];
 				} else {
-					await this.mastodon.postStatus(replyText, { replyToId: status.id, visibility: status.visibility });
+					replyText = `@${status.account.acct} ${content}`;
 				}
-            }
+				this.logger.info(`${replyText}`);
+
+				if (!this.dryRun) {
+					if (!first) {
+						await setTimeout(1000);
+					}
+					if (reply.imageUrls.length > 0) {
+						// Download images
+						const medias = await Promise.all(reply.imageUrls.map(async (url) => {
+							this.logger.info(`Downloading ${url}`);
+							const response = await fetch(url);
+							const imageBuffer = await response.arrayBuffer();
+							this.logger.info("Uploading media");
+							const media = await this.mastodon.uploadImage(Buffer.from(imageBuffer));
+							this.logger.info(JSON.stringify(media, undefined, 2));
+							return media;
+						}));
+						const post = await this.mastodon.postStatus(replyText, {
+							replyToId,
+							mediaIds: medias.map((m) => m.id),
+								visibility: status.visibility,
+							sensitive: true,
+						});
+						replyToId = post.id;
+					} else {
+						const post = await this.mastodon.postStatus(replyText, {
+							replyToId,
+							visibility: status.visibility
+						});
+						replyToId = post.id;
+					}
+				}
+				first = false;
+			}
         } catch (e) {
             this.logger.error(`ChatGPT returned error: ${e}`);
             if (!this.dryRun) {
@@ -133,11 +146,26 @@ class TeokureCli {
         }
     }
 
-	private parseReply(reply: ChatResponse): { text: string, imageUrls: string[] } {
-		return {
-			text: reply.message.content?.replaceAll(/!?\[([^\]]+)\]\([^)]+\)/g, '$1') ?? '',
+	private async parseReply(reply: ChatResponse): Promise<Result<{ text: string, imageUrls: string[] }[], string>> {
+		const content = reply.message.content?.replaceAll(/!?\[([^\]]+)\]\([^)]+\)/g, '$1') ?? '';
+		if (content.length > 500) {
+			const res = await this.textSplitService.splitText(content, Math.ceil(content.length / 450));
+			if (res.type === 'ok') {
+				return ok(res.value.map((p, i) => {
+					if (i == 0) {
+						return { text: p, imageUrls: reply.imageUrls };
+					} else {
+						return { text: p, imageUrls: [] };
+					}
+				}));
+			} else {
+				return err('Failed to split');
+			}
+		}
+		return ok([{
+			text: content,
 			imageUrls: reply.imageUrls,
-		};
+		}]);
 	}
 
     async runCommand(commandStr: string) {

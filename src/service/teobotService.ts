@@ -200,6 +200,9 @@ export class TeobotService {
 				}
 			}
 			case 'gen_image': {
+				return JSON.stringify({
+					error: 'Temporarily disabled due to financial reason',
+				});
 				try {
 					const params = JSON.parse(toolCall.function.arguments);
 					const url = await this.dalle.generateImage(params.prompt, 'teobot');

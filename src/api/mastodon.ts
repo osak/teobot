@@ -18,6 +18,7 @@ export interface Status {
     content: string;
     account: Account;
 	visibility: Visibility;
+    created_at: string;
 }
 
 export interface PostStatusOpt {
@@ -34,6 +35,13 @@ export interface Notification {
     type: NotificationType;
     account: Account;
     status?: Status;
+}
+
+export interface GetHomeTimelineOpt {
+    maxId?: string;
+    sinceId?: string;
+    minId?: string;
+    limit?: number;
 }
 
 export interface MediaAttachment {
@@ -88,6 +96,17 @@ export class Mastodon {
         const params = { since_id: sinceId, types };
         this.logger.info(queryString(params));
         return this.defaultResponseHandler<Notification[]>(await this.api(`/api/v1/notifications${queryString(params)}`));
+    }
+
+    async getHomeTimeline(opt: GetHomeTimelineOpt = {}): Promise<Status[]> {
+        const params = {
+            max_id: opt.maxId,
+            since_id: opt.sinceId,
+            min_id: opt.minId,
+            limit: opt.limit,
+        };
+
+        return this.defaultResponseHandler<Status[]>(await this.api(`/api/v1/timelines/home${queryString(params)}`));
     }
 
 	async uploadImage(buffer: Buffer): Promise<MediaAttachmentWithStatus> {

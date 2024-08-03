@@ -13,7 +13,7 @@ export function padRight(s: string, minWidth: number): string {
     return `${s}${pad}`;
 }
 
-export function queryString(params: { [key: string]: string | string[] | undefined }): string {
+export function queryString(params: { [key: string]: string | string[] | number | undefined }): string {
     const fragments = Object.entries(params).map((entry) => {
         const [k, v] = entry;
         if (v === undefined) {

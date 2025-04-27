@@ -7,6 +7,13 @@ import { TeobotService } from '../service/teobotService';
 import { JmaApi } from '../api/jma';
 import { DallE } from '../api/dalle';
 import { TextSplitService } from '../service/textSplitService';
+import { HistoryService } from '../service/historyService';
+import { Status } from '../api/mastodon';
+import { normalizeStatusContent } from '../messageUtil';
+
+interface ThreadHistory {
+    threads: Partial<Status>[][];
+}
 
 async function main() {
     const rl = readline.createInterface({
@@ -16,8 +23,26 @@ async function main() {
     const chatGPT = GlobalContext.chatGPT;
 	const teobotService = new TeobotService(chatGPT, new JmaApi(), new DallE(GlobalContext.env.CHAT_GPT_API_KEY));
 	const textSplitService = new TextSplitService(chatGPT);
+	const historyService = new HistoryService(GlobalContext.env.HISTORY_STORAGE_PATH);
 
-	let context = teobotService.newChatContext();
+	const buildThreadHistory = async (acct: string): Promise<ThreadHistory> => {
+		const threads = await historyService.getHistory(acct, 10);
+		const blob = threads.map((s) => {
+			if (s.some((m) => m.visibility === 'direct')) {
+				return [];
+			}
+			return s.map((m) => ({
+				account: m.account,
+				content: normalizeStatusContent(m),
+				created_at: m.created_at,
+			}))
+		});
+		return { threads: blob };
+    }
+	const threadHistory = await buildThreadHistory('osa_k');
+	const extraContext = `あなたが最近 osa_k と交わした会話スレッドは以下の通りです。\n<threads>\n${JSON.stringify(threadHistory)}\n</threads>`;
+
+	let context = teobotService.newChatContext(extraContext);
     while (true) {
         const line = await rl.question('> ');
 		const match = line.match(/^split (\d+) (.*)$/);

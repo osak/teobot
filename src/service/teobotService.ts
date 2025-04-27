@@ -14,7 +14,7 @@ export class TeobotService {
 		private readonly dalle: DallE,
 	) {}
 
-	newChatContext(): ChatContext {
+	newChatContext(extraContext: string): ChatContext {
         const instructionMessage: SystemMessage = {
             role: 'system',
             content: `
@@ -26,6 +26,10 @@ export class TeobotService {
 - 発言の語尾には必ず「ロボ」を付けてください。例えば「～あるロボ」「～だロボ」といった具合です。
 - 返答は2～3文程度の短さであることが望ましいですが、質問に詳しく答える必要があるなど、必要であれば長くなっても構いません。ただし絶対に400文字は超えないでください。
 - チャットの入力が@xxxという形式のメンションで始まっていることがありますが、これらは無視してください。
+
+<extraContext>
+${extraContext}
+</extraContext>
 `
         }
         return {

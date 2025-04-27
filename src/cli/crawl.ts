@@ -3,84 +3,81 @@ dotenv.config();
 
 import * as GlobalContext from '../globalContext';
 import { Mastodon, Status } from '../api/mastodon';
+import { Logger } from '../logging';
 import * as fs from 'fs';
 import { setTimeout } from 'timers/promises';
-import { Logger } from '../logging';
 
-const logger = new Logger('crawl-cli');
-
-function buildSeenIds(): Set<string> {
-    const seenIds = new Set<string>();
-    for (const file of fs.readdirSync('history')) {
-        if (!file.endsWith('.json')) {
-            continue;
-        }
-        const data = JSON.parse(fs.readFileSync(`history/${file}`).toString());
-        for (const status of data['messages']) {
-            seenIds.add(status.id);
-        }
-    }
-
-    logger.info(`Loaded ${seenIds.size} seen IDs`);
-    return seenIds;
-}
-
-function cleanupStatus(status: Status): object {
+function normalizeStatus(status: Status): any {
     return {
         id: status.id,
+        url: status.url,
+        in_reply_to_id: status.in_reply_to_id,
+        in_reply_to_account_id: status.in_reply_to_account_id,
+        content: status.content,
+        created_at: status.created_at,
         account: {
             id: status.account.id,
-            username: status.account.username,
             acct: status.account.acct,
             display_name: status.account.display_name,
         },
-        content: status.content,
-        in_reply_to_id: status.in_reply_to_id,
-        in_reply_to_account_id: status.in_reply_to_account_id,
         visibility: status.visibility,
-        created_at: status.created_at,
     };
 }
 
-function saveStatusTree(path: string, tree: Status[]) {
-    const data = {
-        messages: tree.map((s) => cleanupStatus(s)),
+async function saveTree(mastodon: Mastodon, status: Status, seen: Set<string>) {
+    if (seen.has(status.id)) {
+        return;
     }
-    fs.writeFileSync(path, JSON.stringify(data));
+    seen.add(status.id);
+
+    const tree = await mastodon.getReplyTree(status.id);
+    for (const ancestor of tree.ancestors) {
+        seen.add(ancestor.id);
+    }
+
+    const messages = [...tree.ancestors, status, ...tree.descendants].map(normalizeStatus);
+    fs.writeFileSync(`tmp/history/${status.id}.txt`, JSON.stringify({ messages }));
+}
+
+async function syncSeenIds(seenIds: Set<string>) {
+    // Scan tmp/history and add IDs where `${id}.txt` already exists
+    const files = fs.readdirSync('tmp/history');
+    for (const file of files) {
+        if (file.endsWith('.txt')) {
+            const id = file.slice(0, -4);
+            seenIds.add(id);
+        }
+    }
 }
 
 async function main() {
     const env = GlobalContext.env;
     const mastodon = new Mastodon(env.MASTODON_BASE_URL, env.MASTODON_CLIENT_KEY, env.MASTODON_CLIENT_SECRET, env.MASTODON_ACCESS_TOKEN);
+    const logger = new Logger('crawl-cli');
 
-    const seenIds = buildSeenIds();
-    let maxId: string | undefined = undefined;
+    const seen = new Set<string>();
+    syncSeenIds(seen);
 
+    let maxId = undefined;
     while (true) {
-        await setTimeout(500);
-        const statuses = await mastodon.getHomeTimeline({ maxId, limit: 40 });
-        if (statuses.length === 0) {
+        const notifications = await mastodon.getAllNotifications({ types: ['mention'], maxId });
+        if (notifications.length === 0) {
             break;
         }
-        for (const status of statuses) {
-            if (!seenIds.has(status.id)) {
-                seenIds.add(status.id);
 
-                logger.info(`Saving status ${status.id}`);
-                const ancestors = (await mastodon.getReplyTree(status.id)).ancestors;
-                const tree = [...ancestors, status];
-                saveStatusTree(`history/${status.id}.json`, tree);
-
-                for (const ancestor of ancestors) {
-                    seenIds.add(ancestor.id);
-                }
-                await setTimeout(500);
+        for (const notification of notifications) {
+            if (seen.has(notification.status!.id)) {
+                logger.info(`Skipping ${notification.status!.id} (already seen)`);
+                continue;
             }
-            if (maxId == undefined || maxId > status.id) {
-                maxId = status.id;
+            logger.info(`Crawling ${notification.status!.id}`);
+            await saveTree(mastodon, notification.status!, seen);
+            if (maxId === undefined || maxId > notification.id) {
+                maxId = notification.id;
             }
+            await setTimeout(1000);
         }
     }
-}
+} 
 
 main();

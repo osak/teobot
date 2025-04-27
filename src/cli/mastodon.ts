@@ -27,7 +27,7 @@ class MastodonCli {
                 break;
             }
             case 'replies': {
-                const mentions = await this.mastodon.getAllNotifications(['mention']);
+                const mentions = await this.mastodon.getAllNotifications({ types: ['mention'] });
                 for (const mention of mentions) {
                     const status = mention.status!;
                     console.log(`${mention.id}: ${status.account.acct}: ${stripHtmlTags(status.content)}`);
@@ -37,6 +37,7 @@ class MastodonCli {
             case 'reply_tree': {
                 const id = rest[0];
                 const context = await this.mastodon.getReplyTree(id);
+                console.log(context);
                 for (const status of context.ancestors) {
                     console.log(`${status.account.acct}: ${stripHtmlTags(status.content)}`);
                 }

@@ -14,9 +14,14 @@ import { TeobotService } from '../service/teobotService';
 import { JmaApi } from '../api/jma';
 import { DallE } from '../api/dalle';
 import { TextSplitService } from '../service/textSplitService';
+import { HistoryService } from '../service/historyService';
 
 interface State {
     lastNotificationId?: string;
+}
+
+interface ThreadHistory {
+    threads: Partial<Status>[][];
 }
 
 const HISTORY_CHARS_LIMIT = 1000;
@@ -26,6 +31,7 @@ class TeokureCli {
 	private readonly teobotService: TeobotService;
     private readonly mastodon: Mastodon
 	private readonly textSplitService: TextSplitService;
+    private readonly historyService: HistoryService;
     private myAccountId?: string;
     private state: State;
     private dataPath: string;
@@ -41,6 +47,7 @@ class TeokureCli {
         this.mastodon = new Mastodon(env.MASTODON_BASE_URL, env.MASTODON_CLIENT_KEY, env.MASTODON_CLIENT_SECRET, env.MASTODON_ACCESS_TOKEN);
 		this.textSplitService = new TextSplitService(chatGpt);
         this.dataPath = `${env.TEOKURE_STORAGE_PATH}/state.json`;
+        this.historyService = new HistoryService(env.HISTORY_STORAGE_PATH);
         this.state = {};
         this.dryRun = true;
     }
@@ -51,12 +58,29 @@ class TeokureCli {
         await this.loadState();
     }
 
+    private async buildThreadHistory(acct: string): Promise<ThreadHistory> {
+        const threads = await this.historyService.getHistory(acct, 10);
+        const blob = threads.map((s) => {
+            if (s.some((m) => m.visibility === 'direct')) {
+                return [];
+            }
+            return s.map((m) => ({
+                account: m.account,
+                content: normalizeStatusContent(m),
+                created_at: m.created_at,
+            }))
+        });
+        return { threads: blob };
+    }
+
     private async replyToStatus(status: Status) {
         if (this.myAccountId === undefined) {
             throw new Error('myAccountId is not initialized');
         }
 
-        const context = this.teobotService.newChatContext();
+        const threadHistory = await this.buildThreadHistory(status.account.acct);
+        const extraContext = `あなたが最近 ${status.account.acct} と交わした会話スレッドは以下の通りです。\n<threads>\n${JSON.stringify(threadHistory)}\n</threads>`;
+        const context = this.teobotService.newChatContext(extraContext);
 
         const replyTree = await withRetry({ label: 'reply-tree' }, () => this.mastodon.getReplyTree(status.id));
 		const history: Message[] = [];
@@ -73,7 +97,6 @@ class TeokureCli {
             } else {
                 history.unshift({ role: 'user', content: normalizedContent, name: s.account.username } satisfies UserMessage);
             }
-
 		}
         context.history = [...context.history, ...history];
 
@@ -169,7 +192,9 @@ class TeokureCli {
 	}
 
     async runCommand(commandStr: string) {
-        const [command, rest] = commandStr.split(/\s+/, 2);
+        const firstSpace = commandStr.indexOf(' ');
+        const command = firstSpace === -1 ? commandStr : commandStr.slice(0, firstSpace);
+        const rest = firstSpace === -1 ? '' : commandStr.slice(firstSpace + 1);
         switch (command) {
             case 'reply_to': {
                 const statusId = rest;
@@ -199,6 +224,12 @@ class TeokureCli {
                 this.state.lastNotificationId = rest;
                 this.logger.info(`set lastNotificationId to ${this.state.lastNotificationId}`);
                 await this.saveState();
+                break;
+            }
+            case 'history': {
+                const [acct, limitStr] = rest.split(/\s+/);
+                const history = await this.buildThreadHistory(acct);
+                this.logger.info(`History for ${acct}: ${JSON.stringify(history)}`);
                 break;
             }
             default:

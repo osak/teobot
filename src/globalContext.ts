@@ -9,6 +9,7 @@ const Env = z.object({
     MASTODON_CLIENT_SECRET: z.string(),
     MASTODON_ACCESS_TOKEN: z.string(),
     TEOKURE_STORAGE_PATH: z.string(),
+    HISTORY_STORAGE_PATH: z.string(),
     BUILD_TIMESTAMP: z.number(),
 }).required();
 

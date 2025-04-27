@@ -18,6 +18,7 @@ export interface Status {
     content: string;
     account: Account;
 	visibility: Visibility;
+    created_at: string;
 }
 
 export interface PostStatusOpt {

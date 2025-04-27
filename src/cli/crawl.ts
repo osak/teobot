@@ -14,6 +14,7 @@ function normalizeStatus(status: Status): any {
         in_reply_to_id: status.in_reply_to_id,
         in_reply_to_account_id: status.in_reply_to_account_id,
         content: status.content,
+        created_at: status.created_at,
         account: {
             id: status.account.id,
             acct: status.account.acct,
@@ -34,7 +35,7 @@ async function saveTree(mastodon: Mastodon, status: Status, seen: Set<string>) {
         seen.add(ancestor.id);
     }
 
-    const messages = [...tree.ancestors, status].map(normalizeStatus);
+    const messages = [...tree.ancestors, status, ...tree.descendants].map(normalizeStatus);
     fs.writeFileSync(`tmp/history/${status.id}.txt`, JSON.stringify({ messages }));
 }
 
@@ -57,7 +58,7 @@ async function main() {
     const seen = new Set<string>();
     syncSeenIds(seen);
 
-    let maxId = '1710848';
+    let maxId = undefined;
     while (true) {
         const notifications = await mastodon.getAllNotifications({ types: ['mention'], maxId });
         if (notifications.length === 0) {
@@ -74,7 +75,7 @@ async function main() {
             if (maxId === undefined || maxId > notification.id) {
                 maxId = notification.id;
             }
-            await setTimeout(500);
+            await setTimeout(1000);
         }
     }
 } 

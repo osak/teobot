@@ -37,6 +37,7 @@ class MastodonCli {
             case 'reply_tree': {
                 const id = rest[0];
                 const context = await this.mastodon.getReplyTree(id);
+                console.log(context);
                 for (const status of context.ancestors) {
                     console.log(`${status.account.acct}: ${stripHtmlTags(status.content)}`);
                 }

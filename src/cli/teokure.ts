@@ -178,7 +178,7 @@ class TeokureCli {
                 break;
             }
             case 'process_new_replies': {
-                const mentions = (await withRetry({ label: 'notifications' }, () => this.mastodon.getAllNotifications(['mention'], this.state.lastNotificationId)))
+                const mentions = (await withRetry({ label: 'notifications' }, () => this.mastodon.getAllNotifications({ types: ['mention'], sinceId: this.state.lastNotificationId })))
                     .filter((m) => m.account.id !== this.myAccountId);
                 for (const mention of mentions) {
                     try {

@@ -27,7 +27,7 @@ class MastodonCli {
                 break;
             }
             case 'replies': {
-                const mentions = await this.mastodon.getAllNotifications(['mention']);
+                const mentions = await this.mastodon.getAllNotifications({ types: ['mention'] });
                 for (const mention of mentions) {
                     const status = mention.status!;
                     console.log(`${mention.id}: ${status.account.acct}: ${stripHtmlTags(status.content)}`);

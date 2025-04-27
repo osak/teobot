@@ -50,6 +50,12 @@ export interface Context {
     descendants: Status[];
 }
 
+export interface GetAllNotificationsOpt {
+    maxId?: string;
+    sinceId?: string;
+    types?: NotificationType[];
+}
+
 export class Mastodon {
     private readonly logger: Logger = Logger.createLogger('mastodon');
 
@@ -84,8 +90,12 @@ export class Mastodon {
         return await this.defaultResponseHandler<Status>(await this.api(`/api/v1/statuses`, 'POST', payload));
     }
 
-    async getAllNotifications(types: NotificationType[] = [], sinceId?: string): Promise<Notification[]> {
-        const params = { since_id: sinceId, types };
+    async getAllNotifications(opt?: GetAllNotificationsOpt): Promise<Notification[]> {
+        const params = { 
+            max_id: opt?.maxId,
+            since_id: opt?.sinceId,
+            types: opt?.types,
+        };
         this.logger.info(queryString(params));
         return this.defaultResponseHandler<Notification[]>(await this.api(`/api/v1/notifications${queryString(params)}`));
     }

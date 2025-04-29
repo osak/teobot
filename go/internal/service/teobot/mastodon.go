@@ -192,18 +192,16 @@ func (m *MastodonTeobotFrontend) Run() error {
 		}
 
 		inReplyToId := reply.Status.ID
-		if false {
-			for _, text := range texts {
-				body := fmt.Sprintf("@%s: %s", reply.Status.Account.Acct, text)
-				newStatus, err := m.Client.PostStatus(body, &mastodon.PostStatusOpt{
-					ReplyToID:  inReplyToId,
-					Visibility: reply.Status.Visibility,
-				})
-				if err != nil {
-					return fmt.Errorf("failed to post status: %w", err)
-				}
-				inReplyToId = newStatus.ID
+		for _, text := range texts {
+			body := fmt.Sprintf("@%s %s", reply.Status.Account.Acct, text)
+			newStatus, err := m.Client.PostStatus(body, &mastodon.PostStatusOpt{
+				ReplyToID:  inReplyToId,
+				Visibility: reply.Status.Visibility,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to post status: %w", err)
 			}
+			inReplyToId = newStatus.ID
 		}
 		// Update the last notification ID
 		if m.LastNotificationID < reply.ID {

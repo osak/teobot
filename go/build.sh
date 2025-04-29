@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker build -t teobot:latest .
+docker build --build-arg BUILD_TIMESTAMP=$(date +%s) -t teobot:latest .

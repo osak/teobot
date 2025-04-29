@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -405,6 +406,10 @@ func NormalizeStatusContent(status *Status) string {
 
 	// Simple HTML tag removal - in a real implementation you'd want a proper HTML parser
 	content = stripHTMLTags(content)
+
+	// Remove all mentions in the beginning
+	re := regexp.MustCompile(`^\s*(@[a-zA-Z0-9_]+\s*)+`)
+	content = re.ReplaceAllString(content, "")
 
 	// Decode HTML entities
 	content = unescapeHTML(content)

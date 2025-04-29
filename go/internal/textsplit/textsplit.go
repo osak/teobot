@@ -17,10 +17,6 @@ func NewTextSplitService(_ interface{}) *TextSplitService {
 
 // SplitText splits a text into multiple chunks using a simple line-based approach
 func (t *TextSplitService) SplitText(text string, numParts int) ([]string, error) {
-	if numParts == 1 {
-		return []string{text}, nil
-	}
-
 	// Split the text into lines
 	lines := strings.Split(text, "\n")
 

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/osak/teobot/internal/history"
 	"github.com/osak/teobot/internal/mastodon"
@@ -147,6 +148,7 @@ func (m *MastodonTeobotFrontend) ReplyTo(status *mastodon.Status) (*service.Chat
 		"</threads>",
 		status.Account.Acct,
 		string(threadHistoryJSON))
+	m.Logger.Info("Extra context", "extraContext", extraContext)
 
 	// Build a new chat context
 	ctx := m.TeobotService.NewChatContext(extraContext)
@@ -186,9 +188,13 @@ func (m *MastodonTeobotFrontend) Run() error {
 		}
 		m.Logger.Info("Reply generated.", "result", response.Message.Content)
 
-		texts, err := m.TextSplitService.SplitText(response.Message.Content, (len(response.Message.Content)+449)/450)
-		if err != nil {
-			return fmt.Errorf("failed to split text: %w", err)
+		sanitized := strings.ReplaceAll(response.Message.Content, "@", "@ ")
+		texts := []string{sanitized}
+		if len(sanitized) > 450 {
+			texts, err = m.TextSplitService.SplitText(sanitized, (len(sanitized)+449)/450)
+			if err != nil {
+				return fmt.Errorf("failed to split text: %w", err)
+			}
 		}
 
 		inReplyToId := reply.Status.ID

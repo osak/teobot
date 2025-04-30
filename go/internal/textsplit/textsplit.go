@@ -2,6 +2,7 @@ package textsplit
 
 import (
 	"strings"
+	"unicode/utf8"
 )
 
 // TextSplitService provides text splitting functionality
@@ -21,7 +22,7 @@ func (t *TextSplitService) SplitText(text string, numParts int) ([]string, error
 	lines := strings.Split(text, "\n")
 
 	// Calculate maximum length per part
-	maxPartLen := (len(text) + numParts - 1) / numParts // Equivalent to Math.ceil(text.length / numParts)
+	maxPartLen := (utf8.RuneCountInString(text) + numParts - 1) / numParts // Equivalent to Math.ceil(text.length / numParts)
 
 	// Initialize the result with first empty part
 	parts := []string{""}
@@ -31,7 +32,7 @@ func (t *TextSplitService) SplitText(text string, numParts int) ([]string, error
 		lastIdx := len(parts) - 1
 
 		// If adding the line to the current part doesn't exceed maxPartLen, add it
-		if len(parts[lastIdx])+1+len(line) < maxPartLen {
+		if len(parts[lastIdx])+1+utf8.RuneCountInString(line) < maxPartLen {
 			// Only add newline if the part isn't empty
 			if len(parts[lastIdx]) > 0 {
 				parts[lastIdx] += "\n"

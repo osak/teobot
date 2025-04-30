@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/osak/teobot/internal/history"
 	"github.com/osak/teobot/internal/mastodon"
@@ -190,8 +191,8 @@ func (m *MastodonTeobotFrontend) Run() error {
 
 		sanitized := strings.ReplaceAll(response.Message.Content, "@", "@ ")
 		texts := []string{sanitized}
-		if len(sanitized) > 450 {
-			texts, err = m.TextSplitService.SplitText(sanitized, (len(sanitized)+449)/450)
+		if utf8.RuneCountInString(sanitized) > 450 {
+			texts, err = m.TextSplitService.SplitText(sanitized, (utf8.RuneCountInString(sanitized)+449)/450)
 			if err != nil {
 				return fmt.Errorf("failed to split text: %w", err)
 			}

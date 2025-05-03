@@ -1,8 +1,7 @@
 package textsplit
 
 import (
-	"strings"
-	"unicode/utf8"
+	"github.com/osak/teobot/internal/text"
 )
 
 // TextSplitService provides text splitting functionality
@@ -17,27 +16,24 @@ func NewTextSplitService(_ interface{}) *TextSplitService {
 }
 
 // SplitText splits a text into multiple chunks using a simple line-based approach
-func (t *TextSplitService) SplitText(text string, numParts int) ([]string, error) {
+func (tss *TextSplitService) SplitText(t *text.Text, maxPartLen int) ([]*text.Text, error) {
 	// Split the text into lines
-	lines := strings.Split(text, "\n")
-
-	// Calculate maximum length per part
-	maxPartLen := (utf8.RuneCountInString(text) + numParts - 1) / numParts // Equivalent to Math.ceil(text.length / numParts)
+	lines := t.Split("\n")
 
 	// Initialize the result with first empty part
-	parts := []string{""}
+	parts := []*text.Text{text.New("")}
 
 	// Distribute lines to parts
 	for _, line := range lines {
 		lastIdx := len(parts) - 1
 
 		// If adding the line to the current part doesn't exceed maxPartLen, add it
-		if len(parts[lastIdx])+1+utf8.RuneCountInString(line) < maxPartLen {
+		if parts[lastIdx].Len()+1+line.Len() <= maxPartLen {
 			// Only add newline if the part isn't empty
-			if len(parts[lastIdx]) > 0 {
-				parts[lastIdx] += "\n"
+			if parts[lastIdx].Len() > 0 {
+				parts[lastIdx] = text.ConcatString(parts[lastIdx], "\n")
 			}
-			parts[lastIdx] += line
+			parts[lastIdx] = text.Concat(parts[lastIdx], line)
 		} else {
 			// Otherwise, start a new part
 			parts = append(parts, line)

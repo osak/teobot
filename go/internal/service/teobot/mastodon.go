@@ -6,12 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"path"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/osak/teobot/internal/history"
 	"github.com/osak/teobot/internal/mastodon"
 	"github.com/osak/teobot/internal/service"
+	"github.com/osak/teobot/internal/text"
 	"github.com/osak/teobot/internal/textsplit"
 )
 
@@ -189,10 +188,10 @@ func (m *MastodonTeobotFrontend) Run() error {
 		}
 		m.Logger.Info("Reply generated.", "result", response.Message.Content)
 
-		sanitized := strings.ReplaceAll(response.Message.Content, "@", "@ ")
-		texts := []string{sanitized}
-		if utf8.RuneCountInString(sanitized) > 450 {
-			texts, err = m.TextSplitService.SplitText(sanitized, (utf8.RuneCountInString(sanitized)+449)/450)
+		sanitized := text.ReplaceAll(text.New(response.Message.Content), "@", "@ ")
+		texts := []*text.Text{sanitized}
+		if sanitized.Len() > 450 {
+			texts, err = m.TextSplitService.SplitText(sanitized, 450)
 			if err != nil {
 				return fmt.Errorf("failed to split text: %w", err)
 			}

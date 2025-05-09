@@ -1,0 +1,16 @@
+version: '3.9'
+
+services:
+  db:
+    image: 'mariadb:11.6.2-noble'
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./db:/db
+    environment:
+      - MARIADB_USER=teobot
+      - MARIADB_PASSWORD=teo
+      - MARIADB_DATABASE=teobot
+      - MARIADB_ROOT_PASSWORD=teobot-root
+
+volumes:
+  db-data:

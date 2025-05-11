@@ -1,12 +1,15 @@
 package teobot
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path"
 
+	"github.com/osak/teobot/internal/db"
 	"github.com/osak/teobot/internal/history"
 	"github.com/osak/teobot/internal/mastodon"
 	"github.com/osak/teobot/internal/service"
@@ -21,6 +24,8 @@ type MastodonTeobotFrontend struct {
 	ThreadRecollector  *service.MastodonThreadRecollector
 	HistoryService     *history.HistoryService
 	TextSplitService   *textsplit.TextSplitService
+	queries            *db.Queries
+	db                 *sql.DB
 	DataStoragePath    string
 	MyAccountID        string
 	LastNotificationID string
@@ -30,12 +35,13 @@ type state struct {
 	LastNotificationID string `json:"lastNotificationId,omitempty"`
 }
 
-func NewMastodonTeobotFrontend(client *mastodon.Client, teobotService *service.TeobotService, historyService *history.HistoryService, textSplitService *textsplit.TextSplitService, dataStoragePath string) (*MastodonTeobotFrontend, error) {
+func NewMastodonTeobotFrontend(client *mastodon.Client, teobotService *service.TeobotService, historyService *history.HistoryService, textSplitService *textsplit.TextSplitService, sqldb *sql.DB, dataStoragePath string) (*MastodonTeobotFrontend, error) {
 	account, err := client.VerifyCredentials()
 	if err != nil {
 		return nil, err
 	}
 
+	queries := db.New(sqldb)
 	m := &MastodonTeobotFrontend{
 		Logger:            slog.New(slog.NewTextHandler(os.Stdout, nil)).With("component", "mastodon-teobot-frontend"),
 		Client:            client,
@@ -43,6 +49,8 @@ func NewMastodonTeobotFrontend(client *mastodon.Client, teobotService *service.T
 		ThreadRecollector: &service.MastodonThreadRecollector{Client: client},
 		HistoryService:    historyService,
 		TextSplitService:  textSplitService,
+		db:                sqldb,
+		queries:           queries,
 		DataStoragePath:   dataStoragePath,
 		MyAccountID:       account.ID,
 	}
@@ -95,6 +103,80 @@ func containsDirectVisibility(statuses []*mastodon.Status) bool {
 		}
 	}
 	return false
+}
+
+func (m *MastodonTeobotFrontend) ReconcileThread(ctx context.Context, statusId string) error {
+	m.Logger.Info("ReconcileThread", "statusId", statusId)
+
+	// Get the Mastodon reply tree
+	tree, err := m.Client.GetReplyTree(statusId)
+	if err != nil {
+		return fmt.Errorf("failed to get reply tree for statusId=%s: %w", statusId, err)
+	}
+
+	tx, err := m.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := m.queries.WithTx(tx)
+
+	// Build Chatgpt messages history
+	var chatgptMessages []*db.ChatgptMessage
+	for _, status := range tree.Ancestors {
+		message := m.convertToMessage(status)
+		jsonBody, err := json.Marshal(message)
+		if err != nil {
+			m.Logger.Error("Failed to marshal message", "error", err)
+			continue
+		}
+		params := db.CreateChatgptMessageParams{
+			MessageType:      "chatgpt",
+			JsonBody:         string(jsonBody),
+			UserName:         message.Name,
+			MastodonStatusID: sql.NullString{String: status.ID, Valid: true},
+		}
+		if err := qtx.CreateChatgptMessage(ctx, params); err != nil {
+			m.Logger.Error("Failed to save message to the database", "error", err)
+			continue
+		}
+		lastChatgptMessage, err := qtx.GetLastInsertedChatgptMessage(ctx)
+		if err != nil {
+			m.Logger.Error("Failed to get last inserted message", "error", err)
+			continue
+		}
+		chatgptMessages = append(chatgptMessages, &lastChatgptMessage)
+		m.Logger.Info("Saved message to the database", "statusID", status.ID, "messageID", lastChatgptMessage.ID)
+	}
+
+	// Create a new thread
+	if err := qtx.CreateChatgptThread(ctx); err != nil {
+		m.Logger.Error("Failed to create a chatgpt thread in the database", "error", err)
+		return err
+	}
+	threadID, err := qtx.GetLastInsertedChatgptThreadId(ctx)
+	if err != nil {
+		m.Logger.Error("Failed to get last inserted thread ID", "error", err)
+		return err
+	}
+	m.Logger.Info("Created thread", "threadID", threadID)
+
+	// Create relationships between messages and the thread
+	for i, message := range chatgptMessages {
+		if err := qtx.CreateChatgptThreadRel(ctx, db.CreateChatgptThreadRelParams{
+			ThreadID:         int32(threadID),
+			ChatgptMessageID: int32(message.ID),
+			SequenceNum:      int32(i + 1),
+		}); err != nil {
+			m.Logger.Error("Failed to create a chatgpt thread relationship", "error", err)
+			continue
+		}
+		m.Logger.Info("Created thread relationship", "threadID", threadID, "messageID", message.ID, "sequenceNum", i+1)
+	}
+
+	tx.Commit()
+	return nil
 }
 
 func (m *MastodonTeobotFrontend) BuildThreadHistory(acct string) (*history.ThreadHistory, error) {

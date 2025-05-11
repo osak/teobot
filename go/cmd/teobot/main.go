@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -48,7 +49,12 @@ func NewTeokureCli(env *config.Env) (*TeokureCli, error) {
 	mastodonClient := mastodon.NewClient(env.MastodonBaseURL, env.MastodonClientKey, env.MastodonClientSecret, env.MastodonAccessToken)
 	textSplitService := textsplit.NewTextSplitService(chatGPT)
 	historyService := history.NewHistoryService(env.HistoryStoragePath)
-	mastodonTeobotFrontend, err := teobot.NewMastodonTeobotFrontend(mastodonClient, teobotService, historyService, textSplitService, env.TeokureStoragePath)
+	db, err := sql.Open("mysql", env.DBConnectionString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	mastodonTeobotFrontend, err := teobot.NewMastodonTeobotFrontend(mastodonClient, teobotService, historyService, textSplitService, db, env.TeokureStoragePath)
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +114,15 @@ func (t *TeokureCli) RunCommand(commandStr string) error {
 		}
 
 		t.logger.Info("Thread history", "account", acct, "history", string(historyJSON))
+
+	case "reconcile":
+		parts := strings.Split(rest, " ")
+		statusID := parts[0]
+
+		ctx := context.Background()
+		if err := t.mastodonTeobotFrontend.ReconcileThread(ctx, statusID); err != nil {
+			return fmt.Errorf("failed to reconcile thread: %w", err)
+		}
 
 	default:
 		t.logger.Error("Unknown command", "command", command)

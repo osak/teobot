@@ -3,6 +3,8 @@ version: '3.9'
 services:
   db:
     image: 'mariadb:11.6.2-noble'
+    ports:
+      - '127.0.0.1:3306:3306'
     volumes:
       - db-data:/var/lib/mysql
       - ./db:/db

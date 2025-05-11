@@ -13,6 +13,7 @@ type Env struct {
 	ChatGPTAPIKey        string
 	TeokureStoragePath   string
 	HistoryStoragePath   string
+	DBConnectionString   string
 }
 
 // LoadEnvFromOS loads environment variables from the OS
@@ -25,6 +26,7 @@ func LoadEnvFromOS() *Env {
 		ChatGPTAPIKey:        getEnv("CHAT_GPT_API_KEY", ""),
 		TeokureStoragePath:   getEnv("TEOKURE_STORAGE_PATH", "data"),
 		HistoryStoragePath:   getEnv("HISTORY_STORAGE_PATH", "tmp"),
+		DBConnectionString:   getEnv("DB_CONNECTION_STRING", ""),
 	}
 }
 

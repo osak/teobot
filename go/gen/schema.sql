@@ -25,8 +25,8 @@ CREATE TABLE `chatgpt_threads` (
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `chatgpt_threads_rel` (
-  `thread_id` int(11) NOT NULL,
-  `chatgpt_message_id` int(11) NOT NULL,
+  `thread_id` bigint(20) unsigned NOT NULL,
+  `chatgpt_message_id` bigint(20) unsigned NOT NULL,
   `sequence_num` int(11) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),

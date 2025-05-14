@@ -62,8 +62,8 @@ INSERT INTO chatgpt_threads_rel (
 `
 
 type CreateChatgptThreadRelParams struct {
-	ThreadID         int32
-	ChatgptMessageID int32
+	ThreadID         uint64
+	ChatgptMessageID uint64
 	SequenceNum      int32
 }
 
@@ -111,7 +111,7 @@ type GetChatgptMessagesByThreadIdRow struct {
 	SequenceNum      int32
 }
 
-func (q *Queries) GetChatgptMessagesByThreadId(ctx context.Context, threadID int32) ([]GetChatgptMessagesByThreadIdRow, error) {
+func (q *Queries) GetChatgptMessagesByThreadId(ctx context.Context, threadID uint64) ([]GetChatgptMessagesByThreadIdRow, error) {
 	rows, err := q.db.QueryContext(ctx, getChatgptMessagesByThreadId, threadID)
 	if err != nil {
 		return nil, err
@@ -129,6 +129,42 @@ func (q *Queries) GetChatgptMessagesByThreadId(ctx context.Context, threadID int
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.SequenceNum,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getChatgptThreadRels = `-- name: GetChatgptThreadRels :many
+SELECT thread_id, chatgpt_message_id, sequence_num, created_at, updated_at
+FROM chatgpt_threads_rel
+WHERE thread_id IN (SELECT DISTINCT thread_id FROM chatgpt_threads_rel WHERE chatgpt_threads_rel.chatgpt_message_id = ?)
+ORDER BY thread_id, sequence_num
+`
+
+func (q *Queries) GetChatgptThreadRels(ctx context.Context, chatgptMessageID uint64) ([]ChatgptThreadsRel, error) {
+	rows, err := q.db.QueryContext(ctx, getChatgptThreadRels, chatgptMessageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatgptThreadsRel
+	for rows.Next() {
+		var i ChatgptThreadsRel
+		if err := rows.Scan(
+			&i.ThreadID,
+			&i.ChatgptMessageID,
+			&i.SequenceNum,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

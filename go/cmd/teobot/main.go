@@ -115,13 +115,13 @@ func (t *TeokureCli) RunCommand(commandStr string) error {
 
 		t.logger.Info("Thread history", "account", acct, "history", string(historyJSON))
 
-	case "reconcile":
+	case "thread":
 		parts := strings.Split(rest, " ")
 		statusID := parts[0]
 
 		ctx := context.Background()
-		if err := t.mastodonTeobotFrontend.ReconcileThread(ctx, statusID); err != nil {
-			return fmt.Errorf("failed to reconcile thread: %w", err)
+		if err := t.mastodonTeobotFrontend.ProcessReply(ctx, statusID); err != nil {
+			return fmt.Errorf("failed to get thread: %w", err)
 		}
 
 	default:

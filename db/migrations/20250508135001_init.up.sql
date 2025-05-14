@@ -19,8 +19,8 @@ CREATE TABLE chatgpt_threads (
 );
 
 CREATE TABLE chatgpt_threads_rel (
-    thread_id INT NOT NULL,
-    chatgpt_message_id INT NOT NULL,
+    thread_id BIGINT UNSIGNED NOT NULL,
+    chatgpt_message_id BIGINT UNSIGNED NOT NULL,
     sequence_num INT NOT NULL,
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

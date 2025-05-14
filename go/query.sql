@@ -33,4 +33,10 @@ INSERT INTO chatgpt_threads_rel (
 SELECT chatgpt_messages.*, chatgpt_threads_rel.sequence_num
 FROM chatgpt_messages
 INNER JOIN chatgpt_threads_rel ON chatgpt_messages.id = chatgpt_threads_rel.chatgpt_message_id
-WHERE chatgpt_threads_rel.thread_id = ?
+WHERE chatgpt_threads_rel.thread_id = ?;
+
+-- name: GetChatgptThreadRels :many
+SELECT *
+FROM chatgpt_threads_rel
+WHERE thread_id IN (SELECT DISTINCT thread_id FROM chatgpt_threads_rel WHERE chatgpt_threads_rel.chatgpt_message_id = ?)
+ORDER BY thread_id, sequence_num;

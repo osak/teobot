@@ -25,8 +25,8 @@ type ChatgptThread struct {
 }
 
 type ChatgptThreadsRel struct {
-	ThreadID         int32
-	ChatgptMessageID int32
+	ThreadID         uint64
+	ChatgptMessageID uint64
 	SequenceNum      int32
 	CreatedAt        sql.NullTime
 	UpdatedAt        sql.NullTime

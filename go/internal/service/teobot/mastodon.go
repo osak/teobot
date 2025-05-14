@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -105,18 +106,137 @@ func containsDirectVisibility(statuses []*mastodon.Status) bool {
 	return false
 }
 
-func (m *MastodonTeobotFrontend) ReconcileThread(ctx context.Context, statusId string) error {
+var ErrNoCurrentThread = errors.New("no current thread found")
+
+func findThreadsContainingMessageId(ctx context.Context, queries *db.Queries, messageID uint64) (map[uint64][]db.ChatgptThreadsRel, error) {
+	// Get the thread ID from the message
+	threadRel, err := queries.GetChatgptThreadRels(ctx, messageID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		} else {
+			return nil, fmt.Errorf("failed to find chatgpt thread relationship: %w", err)
+		}
+	}
+
+	// Group the rels by thread ID
+	threads := make(map[uint64][]db.ChatgptThreadsRel)
+	for _, rel := range threadRel {
+		if _, ok := threads[rel.ThreadID]; ok {
+			threads[rel.ThreadID] = append(threads[rel.ThreadID], rel)
+		} else {
+			threads[rel.ThreadID] = []db.ChatgptThreadsRel{rel}
+		}
+	}
+	return threads, nil
+}
+
+// GetOrCreateCurrentThread retrieves the current thread for a given status ID, or create one if not exist in DB.
+// "Current thread" means the thread that contains the given status ID as the last message.
+func (m *MastodonTeobotFrontend) GetOrCreateCurrentThreadId(ctx context.Context, status *mastodon.Status) (uint64, error) {
+	if status.InReplyToID == "" {
+		// This is not a reply, so we need to create a new thread
+		return m.createNewThread(ctx)
+	}
+
+	// Look up the status being replied in the database
+	mes, err := m.queries.FindChatgptMessageByMastodonStatusId(ctx, sql.NullString{String: status.InReplyToID, Valid: true})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// There is a Mastodon reply tree but we don't know the history. Needs reconciliation.
+			return m.ReconcileThread(ctx, status.ID)
+		} else {
+			return 0, fmt.Errorf("failed to find chatgpt message by mastodon status ID: %w", err)
+		}
+	}
+
+	// List the existing threads containing the message ID
+	threads, err := findThreadsContainingMessageId(ctx, m.queries, mes.ID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to find threads containing status ID: %w", err)
+	}
+	if len(threads) == 0 {
+		// Unlikely, but if we don't find any threads, we need to create a new one
+		return m.createNewThread(ctx)
+	}
+
+	// Check if the message is the last one in any thread
+	var anyThreadId uint64
+	for threadId, rels := range threads {
+		if rels[len(rels)-1].ChatgptMessageID == mes.ID {
+			// This is the current thread
+			return threadId, nil
+		}
+		anyThreadId = threadId
+	}
+
+	// Now, a thread is being forked from existing one.
+	// We need to create a new thread by duplicating the existing one up to `mes`.
+	baseThread := threads[anyThreadId]
+	return m.cloneThread(ctx, baseThread, mes.ID)
+}
+
+func (m *MastodonTeobotFrontend) createNewThread(ctx context.Context) (uint64, error) {
+	if err := m.queries.CreateChatgptThread(ctx); err != nil {
+		return 0, fmt.Errorf("failed to create a new chatgpt thread: %w", err)
+	}
+	threadId, err := m.queries.GetLastInsertedChatgptThreadId(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get last inserted thread ID: %w", err)
+	}
+	return uint64(threadId), nil
+}
+
+func (m *MastodonTeobotFrontend) cloneThread(ctx context.Context, baseThread []db.ChatgptThreadsRel, messageId uint64) (uint64, error) {
+	// Create a new thread
+	newThreadId, err := m.createNewThread(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create a new thread: %w", err)
+	}
+	m.Logger.Info("Cloning thread into", "newThreadID", newThreadId)
+
+	tx, err := m.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	qtx := m.queries.WithTx(tx)
+
+	// Clone the base thread up to the message ID
+	for _, rel := range baseThread {
+		// Create a new relationship in the new thread
+		if err := qtx.CreateChatgptThreadRel(ctx, db.CreateChatgptThreadRelParams{
+			ThreadID:         newThreadId,
+			ChatgptMessageID: rel.ChatgptMessageID,
+			SequenceNum:      rel.SequenceNum,
+		}); err != nil {
+			return 0, fmt.Errorf("failed to create a new thread relationship: %w", err)
+		}
+		m.Logger.Info("Cloned thread relationship", "threadID", newThreadId, "messageID", rel.ChatgptMessageID, "sequenceNum", rel.SequenceNum)
+		if rel.ChatgptMessageID == messageId {
+			break
+		}
+	}
+
+	tx.Commit()
+	return newThreadId, nil
+}
+
+// ReconcileThread reconciles the Mastodon reply tree for a given status ID.
+// The thread is built from the reply tree and saved to the database.
+// The resulting thread does NOT include the message specified by statusId.
+func (m *MastodonTeobotFrontend) ReconcileThread(ctx context.Context, statusId string) (uint64, error) {
 	m.Logger.Info("ReconcileThread", "statusId", statusId)
 
 	// Get the Mastodon reply tree
 	tree, err := m.Client.GetReplyTree(statusId)
 	if err != nil {
-		return fmt.Errorf("failed to get reply tree for statusId=%s: %w", statusId, err)
+		return 0, fmt.Errorf("failed to get reply tree for statusId=%s: %w", statusId, err)
 	}
 
 	tx, err := m.db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -153,20 +273,20 @@ func (m *MastodonTeobotFrontend) ReconcileThread(ctx context.Context, statusId s
 	// Create a new thread
 	if err := qtx.CreateChatgptThread(ctx); err != nil {
 		m.Logger.Error("Failed to create a chatgpt thread in the database", "error", err)
-		return err
+		return 0, err
 	}
 	threadID, err := qtx.GetLastInsertedChatgptThreadId(ctx)
 	if err != nil {
 		m.Logger.Error("Failed to get last inserted thread ID", "error", err)
-		return err
+		return 0, err
 	}
 	m.Logger.Info("Created thread", "threadID", threadID)
 
 	// Create relationships between messages and the thread
 	for i, message := range chatgptMessages {
 		if err := qtx.CreateChatgptThreadRel(ctx, db.CreateChatgptThreadRelParams{
-			ThreadID:         int32(threadID),
-			ChatgptMessageID: int32(message.ID),
+			ThreadID:         uint64(threadID),
+			ChatgptMessageID: message.ID,
 			SequenceNum:      int32(i + 1),
 		}); err != nil {
 			m.Logger.Error("Failed to create a chatgpt thread relationship", "error", err)
@@ -176,6 +296,19 @@ func (m *MastodonTeobotFrontend) ReconcileThread(ctx context.Context, statusId s
 	}
 
 	tx.Commit()
+	return uint64(threadID), nil
+}
+
+func (m *MastodonTeobotFrontend) ProcessReply(ctx context.Context, statusId string) error {
+	status, err := m.Client.GetStatus(statusId)
+	if err != nil {
+		return fmt.Errorf("failed to get status: %w", err)
+	}
+	threadId, err := m.GetOrCreateCurrentThreadId(ctx, status)
+	if err != nil {
+		return fmt.Errorf("failed to get or create current thread: %w", err)
+	}
+	m.Logger.Info("Processing reply", "statusId", status.ID, "threadId", threadId)
 	return nil
 }
 

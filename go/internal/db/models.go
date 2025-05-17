@@ -5,34 +5,30 @@
 package db
 
 import (
-	"database/sql"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ChatgptMessage struct {
-	ID               uint64
+	ID               uuid.UUID
 	MessageType      string
-	JsonBody         string
+	JsonBody         []byte
 	UserName         string
-	MastodonStatusID sql.NullString
-	CreatedAt        sql.NullTime
-	UpdatedAt        sql.NullTime
+	MastodonStatusID pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
 }
 
 type ChatgptThread struct {
-	ID        uint64
-	CreatedAt sql.NullTime
-	UpdatedAt sql.NullTime
+	ID        uuid.UUID
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
 }
 
 type ChatgptThreadsRel struct {
-	ThreadID         uint64
-	ChatgptMessageID uint64
+	ThreadID         uuid.UUID
+	ChatgptMessageID uuid.UUID
 	SequenceNum      int32
-	CreatedAt        sql.NullTime
-	UpdatedAt        sql.NullTime
-}
-
-type SchemaMigration struct {
-	Version int64
-	Dirty   bool
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
 }

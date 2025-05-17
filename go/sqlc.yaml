@@ -1,10 +1,15 @@
 version: "2"
 sql:
-  - engine: "mysql"
+  - engine: "postgresql"
     queries: "query.sql"
-    schema: "gen/schema.sql"
+    schema: "/db/migrations"
     gen:
       go:
         package: "db"
         out: "internal/db"
-        sql_driver: "github.com/go-sql-driver/mysql"
+        sql_package: "pgx/v5"
+        overrides:
+          - db_type: "uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"

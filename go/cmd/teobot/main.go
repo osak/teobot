@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/osak/teobot/internal/api"
 	"github.com/osak/teobot/internal/config"
@@ -21,6 +22,7 @@ import (
 	"github.com/osak/teobot/internal/service"
 	"github.com/osak/teobot/internal/service/teobot"
 	"github.com/osak/teobot/internal/textsplit"
+	pgxUUID "github.com/vgarvardt/pgx-google-uuid/v5"
 )
 
 const (
@@ -49,12 +51,21 @@ func NewTeokureCli(env *config.Env) (*TeokureCli, error) {
 	mastodonClient := mastodon.NewClient(env.MastodonBaseURL, env.MastodonClientKey, env.MastodonClientSecret, env.MastodonAccessToken)
 	textSplitService := textsplit.NewTextSplitService(chatGPT)
 	historyService := history.NewHistoryService(env.HistoryStoragePath)
-	db, err := sql.Open("mysql", env.DBConnectionString)
+
+	pgxConfig, err := pgxpool.ParseConfig(env.DBConnectionString)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, fmt.Errorf("failed to parse database connection string: %w", err)
+	}
+	pgxConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		pgxUUID.Register(conn.TypeMap())
+		return nil
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), pgxConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
-	mastodonTeobotFrontend, err := teobot.NewMastodonTeobotFrontend(mastodonClient, teobotService, historyService, textSplitService, db, env.TeokureStoragePath)
+	mastodonTeobotFrontend, err := teobot.NewMastodonTeobotFrontend(mastodonClient, teobotService, historyService, textSplitService, pool, env.TeokureStoragePath)
 	if err != nil {
 		return nil, err
 	}

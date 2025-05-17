@@ -7,79 +7,84 @@ package db
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createChatgptMessage = `-- name: CreateChatgptMessage :exec
+const createChatgptMessage = `-- name: CreateChatgptMessage :one
 INSERT INTO chatgpt_messages (
-    message_type, json_body, user_name, mastodon_status_id
-) VALUES (?, ?, ?, ?)
+    id, message_type, json_body, user_name, mastodon_status_id
+) VALUES ($1, $2, $3, $4, $5)
+RETURNING id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at
 `
 
 type CreateChatgptMessageParams struct {
+	ID               uuid.UUID
 	MessageType      string
-	JsonBody         string
+	JsonBody         []byte
 	UserName         string
-	MastodonStatusID sql.NullString
+	MastodonStatusID pgtype.Text
 }
 
-func (q *Queries) CreateChatgptMessage(ctx context.Context, arg CreateChatgptMessageParams) error {
-	_, err := q.db.ExecContext(ctx, createChatgptMessage,
+func (q *Queries) CreateChatgptMessage(ctx context.Context, arg CreateChatgptMessageParams) (ChatgptMessage, error) {
+	row := q.db.QueryRow(ctx, createChatgptMessage,
+		arg.ID,
 		arg.MessageType,
 		arg.JsonBody,
 		arg.UserName,
 		arg.MastodonStatusID,
 	)
-	return err
+	var i ChatgptMessage
+	err := row.Scan(
+		&i.ID,
+		&i.MessageType,
+		&i.JsonBody,
+		&i.UserName,
+		&i.MastodonStatusID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
-const createChatgptMessages = `-- name: CreateChatgptMessages :copyfrom
-INSERT INTO chatgpt_messages (
-    message_type, json_body, user_name, mastodon_status_id
-) VALUES (?, ?, ?, ?)
+const createChatgptThread = `-- name: CreateChatgptThread :one
+INSERT INTO chatgpt_threads (id) VALUES ($1)
+RETURNING id, created_at, updated_at
 `
 
-type CreateChatgptMessagesParams struct {
-	MessageType      string
-	JsonBody         string
-	UserName         string
-	MastodonStatusID sql.NullString
-}
-
-const createChatgptThread = `-- name: CreateChatgptThread :exec
-INSERT INTO chatgpt_threads (id) VALUES (NULL)
-`
-
-func (q *Queries) CreateChatgptThread(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, createChatgptThread)
-	return err
+func (q *Queries) CreateChatgptThread(ctx context.Context, id uuid.UUID) (ChatgptThread, error) {
+	row := q.db.QueryRow(ctx, createChatgptThread, id)
+	var i ChatgptThread
+	err := row.Scan(&i.ID, &i.CreatedAt, &i.UpdatedAt)
+	return i, err
 }
 
 const createChatgptThreadRel = `-- name: CreateChatgptThreadRel :exec
 INSERT INTO chatgpt_threads_rel (
     thread_id, chatgpt_message_id, sequence_num
-) VALUES (?, ?, ?)
+) VALUES ($1, $2, $3)
 `
 
 type CreateChatgptThreadRelParams struct {
-	ThreadID         uint64
-	ChatgptMessageID uint64
+	ThreadID         uuid.UUID
+	ChatgptMessageID uuid.UUID
 	SequenceNum      int32
 }
 
 func (q *Queries) CreateChatgptThreadRel(ctx context.Context, arg CreateChatgptThreadRelParams) error {
-	_, err := q.db.ExecContext(ctx, createChatgptThreadRel, arg.ThreadID, arg.ChatgptMessageID, arg.SequenceNum)
+	_, err := q.db.Exec(ctx, createChatgptThreadRel, arg.ThreadID, arg.ChatgptMessageID, arg.SequenceNum)
 	return err
 }
 
 const findChatgptMessageByMastodonStatusId = `-- name: FindChatgptMessageByMastodonStatusId :one
 SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at
 FROM chatgpt_messages
-WHERE mastodon_status_id = ?
+WHERE mastodon_status_id = $1
 `
 
-func (q *Queries) FindChatgptMessageByMastodonStatusId(ctx context.Context, mastodonStatusID sql.NullString) (ChatgptMessage, error) {
-	row := q.db.QueryRowContext(ctx, findChatgptMessageByMastodonStatusId, mastodonStatusID)
+func (q *Queries) FindChatgptMessageByMastodonStatusId(ctx context.Context, mastodonStatusID pgtype.Text) (ChatgptMessage, error) {
+	row := q.db.QueryRow(ctx, findChatgptMessageByMastodonStatusId, mastodonStatusID)
 	var i ChatgptMessage
 	err := row.Scan(
 		&i.ID,
@@ -97,22 +102,22 @@ const getChatgptMessagesByThreadId = `-- name: GetChatgptMessagesByThreadId :man
 SELECT chatgpt_messages.id, chatgpt_messages.message_type, chatgpt_messages.json_body, chatgpt_messages.user_name, chatgpt_messages.mastodon_status_id, chatgpt_messages.created_at, chatgpt_messages.updated_at, chatgpt_threads_rel.sequence_num
 FROM chatgpt_messages
 INNER JOIN chatgpt_threads_rel ON chatgpt_messages.id = chatgpt_threads_rel.chatgpt_message_id
-WHERE chatgpt_threads_rel.thread_id = ?
+WHERE chatgpt_threads_rel.thread_id = $1
 `
 
 type GetChatgptMessagesByThreadIdRow struct {
-	ID               uint64
+	ID               uuid.UUID
 	MessageType      string
-	JsonBody         string
+	JsonBody         []byte
 	UserName         string
-	MastodonStatusID sql.NullString
-	CreatedAt        sql.NullTime
-	UpdatedAt        sql.NullTime
+	MastodonStatusID pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
 	SequenceNum      int32
 }
 
-func (q *Queries) GetChatgptMessagesByThreadId(ctx context.Context, threadID uint64) ([]GetChatgptMessagesByThreadIdRow, error) {
-	rows, err := q.db.QueryContext(ctx, getChatgptMessagesByThreadId, threadID)
+func (q *Queries) GetChatgptMessagesByThreadId(ctx context.Context, threadID uuid.UUID) ([]GetChatgptMessagesByThreadIdRow, error) {
+	rows, err := q.db.Query(ctx, getChatgptMessagesByThreadId, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -134,9 +139,6 @@ func (q *Queries) GetChatgptMessagesByThreadId(ctx context.Context, threadID uin
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -146,12 +148,12 @@ func (q *Queries) GetChatgptMessagesByThreadId(ctx context.Context, threadID uin
 const getChatgptThreadRels = `-- name: GetChatgptThreadRels :many
 SELECT thread_id, chatgpt_message_id, sequence_num, created_at, updated_at
 FROM chatgpt_threads_rel
-WHERE thread_id IN (SELECT DISTINCT thread_id FROM chatgpt_threads_rel WHERE chatgpt_threads_rel.chatgpt_message_id = ?)
+WHERE thread_id IN (SELECT DISTINCT thread_id FROM chatgpt_threads_rel WHERE chatgpt_threads_rel.chatgpt_message_id = $1)
 ORDER BY thread_id, sequence_num
 `
 
-func (q *Queries) GetChatgptThreadRels(ctx context.Context, chatgptMessageID uint64) ([]ChatgptThreadsRel, error) {
-	rows, err := q.db.QueryContext(ctx, getChatgptThreadRels, chatgptMessageID)
+func (q *Queries) GetChatgptThreadRels(ctx context.Context, chatgptMessageID uuid.UUID) ([]ChatgptThreadsRel, error) {
+	rows, err := q.db.Query(ctx, getChatgptThreadRels, chatgptMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -170,43 +172,8 @@ func (q *Queries) GetChatgptThreadRels(ctx context.Context, chatgptMessageID uin
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return items, nil
-}
-
-const getLastInsertedChatgptMessage = `-- name: GetLastInsertedChatgptMessage :one
-SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at
-FROM chatgpt_messages
-WHERE id = LAST_INSERT_ID()
-`
-
-func (q *Queries) GetLastInsertedChatgptMessage(ctx context.Context) (ChatgptMessage, error) {
-	row := q.db.QueryRowContext(ctx, getLastInsertedChatgptMessage)
-	var i ChatgptMessage
-	err := row.Scan(
-		&i.ID,
-		&i.MessageType,
-		&i.JsonBody,
-		&i.UserName,
-		&i.MastodonStatusID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getLastInsertedChatgptThreadId = `-- name: GetLastInsertedChatgptThreadId :one
-SELECT LAST_INSERT_ID() AS id
-`
-
-func (q *Queries) GetLastInsertedChatgptThreadId(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getLastInsertedChatgptThreadId)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
 }

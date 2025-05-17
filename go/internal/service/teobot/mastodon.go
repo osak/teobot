@@ -439,9 +439,32 @@ func (m *MastodonTeobotFrontend) ReplyTo(ctx context.Context, status *mastodon.S
 		"あなたが最近 %s と交わした会話スレッドは以下の通りです。\n"+
 		"<threads>\n"+
 		"%s\n"+
-		"</threads>",
+		"</threads>\n",
 		status.Account.Acct,
 		string(threadHistoryJSON))
+
+	recentMessagesRaw, err := m.queries.GetRecentChatgptMessages(ctx, 50)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent chatgpt messages: %w", err)
+	}
+	recentMessages := make([]service.Message, len(recentMessagesRaw))
+	for i, message := range recentMessagesRaw {
+		var msg service.Message
+		if err := json.Unmarshal(message.JsonBody, &msg); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal message: %w", err)
+		}
+		recentMessages[i] = msg
+	}
+	recentMessagesJSON, err := json.Marshal(recentMessages)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal recent messages: %w", err)
+	}
+	extraContext += fmt.Sprintf(""+
+		"\nあなたが直近他のユーザーと交わしたやりとりは以下の通りです。\n"+
+		"<recent_messages>\n"+
+		"%s\n"+
+		"</recent_messages>\n",
+		string(recentMessagesJSON))
 	m.Logger.Info("Extra context", "extraContext", extraContext)
 
 	// Build a new chat context

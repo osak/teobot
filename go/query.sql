@@ -23,6 +23,16 @@ WHERE chatgpt_threads_rel.thread_id = $1
 AND message_type != 'pseudo_message'
 ORDER BY chatgpt_threads_rel.sequence_num;
 
+-- name: GetRecentChatgptMessages :many
+SELECT
+    json_body,
+    user_name
+FROM chatgpt_messages
+WHERE message_type != 'pseudo_message'
+AND privacy_level != 'private'
+ORDER BY timestamp DESC
+LIMIT $1;
+
 -- name: CreateChatgptThreadRel :exec
 INSERT INTO chatgpt_threads_rel (
     thread_id, chatgpt_message_id, sequence_num

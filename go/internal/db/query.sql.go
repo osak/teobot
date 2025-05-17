@@ -188,6 +188,42 @@ func (q *Queries) GetMaxSequenceNum(ctx context.Context, threadID uuid.UUID) (in
 	return max_sequence_num, err
 }
 
+const getRecentChatgptMessages = `-- name: GetRecentChatgptMessages :many
+SELECT
+    json_body,
+    user_name
+FROM chatgpt_messages
+WHERE message_type != 'pseudo_message'
+AND privacy_level != 'private'
+ORDER BY timestamp DESC
+LIMIT $1
+`
+
+type GetRecentChatgptMessagesRow struct {
+	JsonBody []byte
+	UserName string
+}
+
+func (q *Queries) GetRecentChatgptMessages(ctx context.Context, limit int32) ([]GetRecentChatgptMessagesRow, error) {
+	rows, err := q.db.Query(ctx, getRecentChatgptMessages, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetRecentChatgptMessagesRow
+	for rows.Next() {
+		var i GetRecentChatgptMessagesRow
+		if err := rows.Scan(&i.JsonBody, &i.UserName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRecentThreadIdsByUserName = `-- name: GetRecentThreadIdsByUserName :many
 SELECT DISTINCT thread_id
 FROM chatgpt_threads_rel

@@ -99,21 +99,19 @@ func (q *Queries) FindChatgptMessageByMastodonStatusId(ctx context.Context, mast
 }
 
 const getChatgptMessagesByThreadId = `-- name: GetChatgptMessagesByThreadId :many
-SELECT chatgpt_messages.id, chatgpt_messages.message_type, chatgpt_messages.json_body, chatgpt_messages.user_name, chatgpt_messages.mastodon_status_id, chatgpt_messages.created_at, chatgpt_messages.updated_at, chatgpt_threads_rel.sequence_num
+SELECT
+    json_body,
+    user_name
 FROM chatgpt_messages
 INNER JOIN chatgpt_threads_rel ON chatgpt_messages.id = chatgpt_threads_rel.chatgpt_message_id
 WHERE chatgpt_threads_rel.thread_id = $1
+AND message_type != 'pseudo_message'
+ORDER BY chatgpt_threads_rel.sequence_num
 `
 
 type GetChatgptMessagesByThreadIdRow struct {
-	ID               uuid.UUID
-	MessageType      string
-	JsonBody         []byte
-	UserName         string
-	MastodonStatusID pgtype.Text
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-	SequenceNum      int32
+	JsonBody []byte
+	UserName string
 }
 
 func (q *Queries) GetChatgptMessagesByThreadId(ctx context.Context, threadID uuid.UUID) ([]GetChatgptMessagesByThreadIdRow, error) {
@@ -125,16 +123,7 @@ func (q *Queries) GetChatgptMessagesByThreadId(ctx context.Context, threadID uui
 	var items []GetChatgptMessagesByThreadIdRow
 	for rows.Next() {
 		var i GetChatgptMessagesByThreadIdRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.MessageType,
-			&i.JsonBody,
-			&i.UserName,
-			&i.MastodonStatusID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SequenceNum,
-		); err != nil {
+		if err := rows.Scan(&i.JsonBody, &i.UserName); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -176,4 +165,17 @@ func (q *Queries) GetChatgptThreadRels(ctx context.Context, chatgptMessageID uui
 		return nil, err
 	}
 	return items, nil
+}
+
+const getMaxSequenceNum = `-- name: GetMaxSequenceNum :one
+SELECT COALESCE(MAX(sequence_num), 0)::INT AS max_sequence_num
+FROM chatgpt_threads_rel
+WHERE thread_id = $1
+`
+
+func (q *Queries) GetMaxSequenceNum(ctx context.Context, threadID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, getMaxSequenceNum, threadID)
+	var max_sequence_num int32
+	err := row.Scan(&max_sequence_num)
+	return max_sequence_num, err
 }

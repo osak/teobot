@@ -98,13 +98,15 @@ func (t *TeokureCli) RunCommand(commandStr string) error {
 				Acct: acct,
 			},
 		}
-		res, err := t.mastodonTeobotFrontend.ReplyTo(&status)
+		ctx := context.Background()
+		res, err := t.mastodonTeobotFrontend.ReplyTo(ctx, &status)
 		if err != nil {
 			return err
 		}
 		t.logger.Info("Reply", "result", res)
 	case "reply_to":
-		res, err := t.mastodonTeobotFrontend.ReplyToStatusId(rest)
+		ctx := context.Background()
+		res, err := t.mastodonTeobotFrontend.ReplyToStatusId(ctx, rest)
 		if err != nil {
 			return err
 		}
@@ -166,7 +168,7 @@ func (t *TeokureCli) RunServer(ctx context.Context) error {
 			return ctx.Err()
 		default:
 			t.logger.Info("Processing new replies...")
-			if err := t.mastodonTeobotFrontend.Run(); err != nil {
+			if err := t.mastodonTeobotFrontend.Run(ctx); err != nil {
 				t.logger.Error("Failed to process new replies", "error", err)
 			}
 

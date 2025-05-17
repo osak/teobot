@@ -253,7 +253,7 @@ func (m *MastodonTeobotFrontend) ReconcileThread(ctx context.Context, statusId s
 		}
 		params := db.CreateChatgptMessageParams{
 			ID:               uuid.Must(uuid.NewV7()),
-			MessageType:      "chatgpt",
+			MessageType:      "mastodon_status",
 			JsonBody:         jsonBody,
 			UserName:         message.Name,
 			MastodonStatusID: pgtype.Text{String: status.ID, Valid: true},
@@ -290,6 +290,24 @@ func (m *MastodonTeobotFrontend) ReconcileThread(ctx context.Context, statusId s
 
 	tx.Commit(ctx)
 	return thread.ID, nil
+}
+
+func (m *MastodonTeobotFrontend) RestoreThread(ctx context.Context, threadId uuid.UUID) ([]service.Message, error) {
+	// Get the thread messages from the database
+	messages, err := m.queries.GetChatgptMessagesByThreadId(ctx, threadId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get chatgpt thread messages: %w", err)
+	}
+	// Convert to service.Message
+	var result []service.Message
+	for _, message := range messages {
+		var msg service.Message
+		if err := json.Unmarshal(message.JsonBody, &msg); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal message: %w", err)
+		}
+		result = append(result, msg)
+	}
+	return result, nil
 }
 
 func (m *MastodonTeobotFrontend) ProcessReply(ctx context.Context, statusId string) error {
@@ -332,14 +350,58 @@ func (m *MastodonTeobotFrontend) BuildThreadHistory(acct string) (*history.Threa
 	return &history.ThreadHistory{Threads: mastodonThreads}, nil
 }
 
-func (m *MastodonTeobotFrontend) ReplyTo(status *mastodon.Status) (*service.ChatResponse, error) {
-	// Get the thread context
-	thread, err := m.ThreadRecollector.RecollectThread(status.ID)
+func (m *MastodonTeobotFrontend) SaveMessageInThread(ctx context.Context, message service.Message, messageType string, threadId uuid.UUID, statusId string) error {
+	tx, err := m.pool.Begin(ctx)
 	if err != nil {
-		m.Logger.Warn("Failed to recollect thread", "error", err)
-		thread = make([]*mastodon.Status, 0)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := m.queries.WithTx(tx)
+
+	seqNum, err := qtx.GetMaxSequenceNum(ctx, threadId)
+	if err != nil {
+		return fmt.Errorf("failed to get sequence number: %w", err)
 	}
 
+	mastodonStatusID := pgtype.Text{}
+	if statusId != "" {
+		mastodonStatusID = pgtype.Text{String: statusId, Valid: true}
+	}
+
+	jsonBody, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("failed to marshal message: %w", err)
+	}
+	chatgptMessage, err := qtx.CreateChatgptMessage(ctx, db.CreateChatgptMessageParams{
+		ID:               uuid.Must(uuid.NewV7()),
+		MessageType:      messageType,
+		JsonBody:         jsonBody,
+		UserName:         message.Name,
+		MastodonStatusID: mastodonStatusID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to save chatgpt message: %w", err)
+	}
+
+	if err := qtx.CreateChatgptThreadRel(ctx, db.CreateChatgptThreadRelParams{
+		ThreadID:         threadId,
+		ChatgptMessageID: chatgptMessage.ID,
+		SequenceNum:      seqNum + 1,
+	}); err != nil {
+		return fmt.Errorf("failed to create chatgpt thread relationship: %w", err)
+	}
+
+	tx.Commit(ctx)
+	return nil
+}
+
+type ReplyToResult struct {
+	ThreadId        uuid.UUID
+	UserMessage     service.Message
+	RepsonseMessage service.Message
+}
+
+func (m *MastodonTeobotFrontend) ReplyTo(ctx context.Context, status *mastodon.Status) (*ReplyToResult, error) {
 	threadHistory, err := m.BuildThreadHistory(status.Account.Acct)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build thread history: %w", err)
@@ -359,25 +421,94 @@ func (m *MastodonTeobotFrontend) ReplyTo(status *mastodon.Status) (*service.Chat
 	m.Logger.Info("Extra context", "extraContext", extraContext)
 
 	// Build a new chat context
-	ctx := m.TeobotService.NewChatContext(extraContext)
-	for _, s := range thread {
-		ctx.History = append(ctx.History, m.convertToMessage(s))
+	threadId, err := m.GetOrCreateCurrentThreadId(ctx, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get thread ID: %w", err)
 	}
+	prevMessages, err := m.RestoreThread(ctx, threadId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to restore thread: %w", err)
+	}
+	chatCtx := m.TeobotService.NewChatContext(extraContext)
+	for _, s := range prevMessages {
+		chatCtx.History = append(chatCtx.History, s)
+	}
+	m.Logger.Info("Chat context", "history", chatCtx.History)
 
 	// Process the thread
-	return m.TeobotService.Chat(ctx, *m.convertToMessage(status))
+	userMessage := m.convertToMessage(status)
+	response, err := m.TeobotService.Chat(chatCtx, *userMessage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process chat: %w", err)
+	}
+
+	result := &ReplyToResult{
+		ThreadId:        threadId,
+		UserMessage:     *userMessage,
+		RepsonseMessage: response.Message,
+	}
+	return result, nil
 }
 
-func (m *MastodonTeobotFrontend) ReplyToStatusId(id string) (*service.ChatResponse, error) {
+func (m *MastodonTeobotFrontend) ReplyToStatusId(ctx context.Context, id string) (*ReplyToResult, error) {
 	status, err := m.Client.GetStatus(id)
 	if err != nil {
 		return nil, err
 	}
-	return m.ReplyTo(status)
+	return m.ReplyTo(ctx, status)
+}
+
+func (m *MastodonTeobotFrontend) ReplyAndPost(ctx context.Context, status *mastodon.Status) error {
+	result, err := m.ReplyTo(ctx, status)
+	if err != nil {
+		return fmt.Errorf("failed to generate reply to the status: %w", err)
+	}
+	m.Logger.Info("Reply generated.", "result", result.RepsonseMessage.Content)
+
+	sanitized := text.ReplaceAll(text.New(result.RepsonseMessage.Content), "@", "@ ")
+	texts := []*text.Text{sanitized}
+	if sanitized.Len() > 450 {
+		texts, err = m.TextSplitService.SplitText(sanitized, 450)
+		if err != nil {
+			return fmt.Errorf("failed to split text: %w", err)
+		}
+	}
+
+	if err := m.SaveMessageInThread(ctx, result.UserMessage, "user_status", result.ThreadId, status.ID); err != nil {
+		return fmt.Errorf("failed to save user message: %w", err)
+	}
+
+	inReplyToId := status.ID
+	for i, text := range texts {
+		body := fmt.Sprintf("@%s %s", status.Account.Acct, text)
+		newStatus, err := m.Client.PostStatus(body, &mastodon.PostStatusOpt{
+			ReplyToID:  inReplyToId,
+			Visibility: status.Visibility,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to post status: %w", err)
+		}
+
+		if i == 0 {
+			if err := m.SaveMessageInThread(ctx, result.RepsonseMessage, "ai_response", result.ThreadId, newStatus.ID); err != nil {
+				return fmt.Errorf("failed to save assistant message: %w", err)
+			}
+		} else {
+			// Insert pseudo message to the database for looking up the thread
+			pseudoMessage := m.convertToMessage(newStatus)
+			if err := m.SaveMessageInThread(ctx, *pseudoMessage, "pseudo_message", result.ThreadId, newStatus.ID); err != nil {
+				return fmt.Errorf("failed to save pseudo message: %w", err)
+			}
+		}
+
+		inReplyToId = newStatus.ID
+	}
+
+	return nil
 }
 
 // Run goes through the newly arrived replies and repond to them
-func (m *MastodonTeobotFrontend) Run() error {
+func (m *MastodonTeobotFrontend) Run(ctx context.Context) error {
 	// Get the latest replies
 	replies, err := m.Client.GetAllNotifications(&mastodon.GetAllNotificationsOpt{
 		SinceID: m.LastNotificationID,
@@ -390,33 +521,12 @@ func (m *MastodonTeobotFrontend) Run() error {
 	// Process each reply
 	for _, reply := range replies {
 		m.Logger.Info("Processing reply", "reply", reply.ID, "status", reply.Status.Content)
-		response, err := m.ReplyTo(reply.Status)
+		err := m.ReplyAndPost(ctx, reply.Status)
 		if err != nil {
-			return fmt.Errorf("failed to generate reply to the status: %w", err)
-		}
-		m.Logger.Info("Reply generated.", "result", response.Message.Content)
-
-		sanitized := text.ReplaceAll(text.New(response.Message.Content), "@", "@ ")
-		texts := []*text.Text{sanitized}
-		if sanitized.Len() > 450 {
-			texts, err = m.TextSplitService.SplitText(sanitized, 450)
-			if err != nil {
-				return fmt.Errorf("failed to split text: %w", err)
-			}
+			m.Logger.Error("Failed to reply to the status", "error", err)
+			continue
 		}
 
-		inReplyToId := reply.Status.ID
-		for _, text := range texts {
-			body := fmt.Sprintf("@%s %s", reply.Status.Account.Acct, text)
-			newStatus, err := m.Client.PostStatus(body, &mastodon.PostStatusOpt{
-				ReplyToID:  inReplyToId,
-				Visibility: reply.Status.Visibility,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to post status: %w", err)
-			}
-			inReplyToId = newStatus.ID
-		}
 		// Update the last notification ID
 		if m.LastNotificationID < reply.ID {
 			m.LastNotificationID = reply.ID

@@ -62,7 +62,7 @@ type ChatResponse struct {
 
 // ChatContext holds the conversation context
 type ChatContext struct {
-	History       []*Message
+	History       []Message
 	SystemMessage string
 	Tools         []Tool
 }
@@ -82,7 +82,7 @@ func NewChatGPT(apiKey string) *ChatGPT {
 }
 
 // Chat sends a message to ChatGPT and gets a response
-func (c *ChatGPT) Chat(messages []*Message, tools []Tool) (*Message, error) {
+func (c *ChatGPT) Chat(messages []Message, tools []Tool) (*Message, error) {
 	// Prepare the request payload
 	reqBody := map[string]interface{}{
 		"model":    "gpt-4o",
@@ -308,7 +308,7 @@ func (t *TeobotService) NewChatContext(extraContext string) *ChatContext {
 	}
 
 	return &ChatContext{
-		History:       []*Message{},
+		History:       []Message{},
 		SystemMessage: systemMsg,
 		Tools:         tools,
 	}
@@ -317,10 +317,10 @@ func (t *TeobotService) NewChatContext(extraContext string) *ChatContext {
 // Chat sends a message to the AI and gets a response
 func (t *TeobotService) Chat(context *ChatContext, userMessage Message) (*ChatResponse, error) {
 	// Build the messages array
-	var messages []*Message
+	var messages []Message
 
 	// Add system message
-	messages = append(messages, &Message{
+	messages = append(messages, Message{
 		Role:    "system",
 		Content: context.SystemMessage,
 	})
@@ -329,7 +329,7 @@ func (t *TeobotService) Chat(context *ChatContext, userMessage Message) (*ChatRe
 	messages = append(messages, context.History...)
 
 	// Add the user's message
-	messages = append(messages, &userMessage)
+	messages = append(messages, userMessage)
 
 	// Initialize image URLs array
 	imageURLs := []string{}
@@ -339,7 +339,7 @@ func (t *TeobotService) Chat(context *ChatContext, userMessage Message) (*ChatRe
 	if err != nil {
 		return nil, err
 	}
-	messages = append(messages, response)
+	messages = append(messages, *response)
 
 	// Process tool calls if present
 	if len(response.ToolCalls) > 0 {
@@ -350,7 +350,7 @@ func (t *TeobotService) Chat(context *ChatContext, userMessage Message) (*ChatRe
 			}
 
 			// Process each tool call
-			var toolMessages []*Message
+			var toolMessages []Message
 			for _, toolCall := range response.ToolCalls {
 				t.logger.Info("Processing tool call", "toolCall", toolCall)
 				toolResult, err := t.executeToolCall(toolCall)
@@ -359,7 +359,7 @@ func (t *TeobotService) Chat(context *ChatContext, userMessage Message) (*ChatRe
 				}
 				t.logger.Info("Tool call result", "toolCall", toolCall, "result", toolResult)
 
-				toolMessages = append(toolMessages, &Message{
+				toolMessages = append(toolMessages, Message{
 					Role:       "tool",
 					Content:    toolResult,
 					ToolCallID: toolCall.ID,
@@ -374,7 +374,7 @@ func (t *TeobotService) Chat(context *ChatContext, userMessage Message) (*ChatRe
 			if err != nil {
 				return nil, err
 			}
-			messages = append(messages, nextResponse)
+			messages = append(messages, *nextResponse)
 
 			response = nextResponse
 			if len(response.ToolCalls) == 0 {

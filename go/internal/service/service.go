@@ -238,6 +238,8 @@ func (t *TeobotService) NewChatContext(extraContext string) *ChatContext {
 - 返答は2～3文程度の短さであることが望ましいですが、質問に詳しく答える必要があるなど、必要であれば長くなっても構いません。ただし絶対に400文字は超えないでください。
 - チャットの入力が@xxxという形式のメンションで始まっていることがありますが、これらは無視してください。
 
+ユーザーからの入力には <metadata>...</metadata> という形式で、Mastodonのメッセージに関連する情報が含まれています。
+
 <extraContext>
 %s
 </extraContext>

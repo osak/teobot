@@ -414,6 +414,13 @@ func NormalizeStatusContent(status *Status) string {
 	// Decode HTML entities
 	content = unescapeHTML(content)
 
+	// Add metadata
+	content += "\n<metadata>\n"
+	content += fmt.Sprintf("Account: %s (%s)\n", status.Account.Acct, status.Account.DisplayName)
+	content += fmt.Sprintf("Posted At: %s\n", status.CreatedAt)
+	content += fmt.Sprintf("Visibility: %s\n", status.Visibility)
+	content += "</metadata>\n"
+
 	return content
 }
 

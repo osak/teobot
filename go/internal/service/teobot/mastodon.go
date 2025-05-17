@@ -1,6 +1,7 @@
 package teobot
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -419,6 +420,16 @@ func (m *MastodonTeobotFrontend) SaveMessageInThread(ctx context.Context, messag
 	return nil
 }
 
+func encodeToJson(v interface{}) (string, error) {
+	buf := new(bytes.Buffer)
+	encoder := json.NewEncoder(buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
+		return "", fmt.Errorf("failed to marshal to JSON: %w", err)
+	}
+	return buf.String(), nil
+}
+
 type ReplyToResult struct {
 	ThreadId        uuid.UUID
 	UserMessage     service.Message
@@ -430,7 +441,7 @@ func (m *MastodonTeobotFrontend) ReplyTo(ctx context.Context, status *mastodon.S
 	if err != nil {
 		return nil, fmt.Errorf("failed to build thread history: %w", err)
 	}
-	threadHistoryJSON, err := json.Marshal(threadHistory)
+	threadHistoryJSON, err := encodeToJson(threadHistory)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal thread history: %w", err)
 	}
@@ -455,7 +466,13 @@ func (m *MastodonTeobotFrontend) ReplyTo(ctx context.Context, status *mastodon.S
 		}
 		recentMessages[i] = msg
 	}
-	recentMessagesJSON, err := json.Marshal(recentMessages)
+	// Reverse the order of messages
+	for i, j := 0, len(recentMessages)-1; i < j; i, j = i+1, j-1 {
+		recentMessages[i], recentMessages[j] = recentMessages[j], recentMessages[i]
+	}
+
+	// Convert to JSON using Encoder with disabling HTML escape
+	recentMessagesJson, err := encodeToJson(recentMessages)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal recent messages: %w", err)
 	}
@@ -464,7 +481,7 @@ func (m *MastodonTeobotFrontend) ReplyTo(ctx context.Context, status *mastodon.S
 		"<recent_messages>\n"+
 		"%s\n"+
 		"</recent_messages>\n",
-		string(recentMessagesJSON))
+		recentMessagesJson)
 	m.Logger.Info("Extra context", "extraContext", extraContext)
 
 	// Build a new chat context

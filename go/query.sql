@@ -1,7 +1,7 @@
 -- name: CreateChatgptMessage :one
 INSERT INTO chatgpt_messages (
-    id, message_type, json_body, user_name, mastodon_status_id, timestamp
-) VALUES ($1, $2, $3, $4, $5, $6)
+    id, message_type, json_body, user_name, mastodon_status_id, timestamp, privacy_level
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: FindChatgptMessageByMastodonStatusId :one

@@ -18,6 +18,7 @@ type ChatgptMessage struct {
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 	Timestamp        pgtype.Timestamptz
+	PrivacyLevel     pgtype.Text
 }
 
 type ChatgptThread struct {

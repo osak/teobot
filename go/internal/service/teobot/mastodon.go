@@ -110,6 +110,13 @@ func containsDirectVisibility(statuses []*mastodon.Status) bool {
 	return false
 }
 
+func getPrivacyLevel(status *mastodon.Status) string {
+	if status.Visibility == "direct" || status.Visibility == "private" {
+		return "private"
+	}
+	return "public"
+}
+
 var ErrNoCurrentThread = errors.New("no current thread found")
 
 func findThreadsContainingMessageId(ctx context.Context, queries *db.Queries, messageID uuid.UUID) (map[uuid.UUID][]db.ChatgptThreadsRel, error) {
@@ -264,6 +271,7 @@ func (m *MastodonTeobotFrontend) ReconcileThread(ctx context.Context, statusId s
 			UserName:         message.Name,
 			MastodonStatusID: pgtype.Text{String: status.ID, Valid: true},
 			Timestamp:        pgtype.Timestamptz{Time: posted, Valid: true},
+			PrivacyLevel:     pgtype.Text{String: getPrivacyLevel(status), Valid: true},
 		}
 		chatgptMessage, err := qtx.CreateChatgptMessage(ctx, params)
 		if err != nil {
@@ -364,7 +372,7 @@ func (m *MastodonTeobotFrontend) BuildThreadHistory(ctx context.Context, acct st
 	return chatHistories, nil
 }
 
-func (m *MastodonTeobotFrontend) SaveMessageInThread(ctx context.Context, message service.Message, messageType string, threadId uuid.UUID, statusId string) error {
+func (m *MastodonTeobotFrontend) SaveMessageInThread(ctx context.Context, message service.Message, messageType string, threadId uuid.UUID, privacyLevel string, statusId string) error {
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -393,6 +401,7 @@ func (m *MastodonTeobotFrontend) SaveMessageInThread(ctx context.Context, messag
 		UserName:         message.Name,
 		MastodonStatusID: mastodonStatusID,
 		Timestamp:        pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		PrivacyLevel:     pgtype.Text{String: privacyLevel, Valid: true},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to save chatgpt message: %w", err)
@@ -489,7 +498,8 @@ func (m *MastodonTeobotFrontend) ReplyAndPost(ctx context.Context, status *masto
 		}
 	}
 
-	if err := m.SaveMessageInThread(ctx, result.UserMessage, "user_status", result.ThreadId, status.ID); err != nil {
+	privacyLevel := getPrivacyLevel(status)
+	if err := m.SaveMessageInThread(ctx, result.UserMessage, "user_status", result.ThreadId, privacyLevel, status.ID); err != nil {
 		return fmt.Errorf("failed to save user message: %w", err)
 	}
 
@@ -505,13 +515,13 @@ func (m *MastodonTeobotFrontend) ReplyAndPost(ctx context.Context, status *masto
 		}
 
 		if i == 0 {
-			if err := m.SaveMessageInThread(ctx, result.RepsonseMessage, "ai_response", result.ThreadId, newStatus.ID); err != nil {
+			if err := m.SaveMessageInThread(ctx, result.RepsonseMessage, "ai_response", result.ThreadId, privacyLevel, newStatus.ID); err != nil {
 				return fmt.Errorf("failed to save assistant message: %w", err)
 			}
 		} else {
 			// Insert pseudo message to the database for looking up the thread
 			pseudoMessage := m.convertToMessage(newStatus)
-			if err := m.SaveMessageInThread(ctx, *pseudoMessage, "pseudo_message", result.ThreadId, newStatus.ID); err != nil {
+			if err := m.SaveMessageInThread(ctx, *pseudoMessage, "pseudo_message", result.ThreadId, privacyLevel, newStatus.ID); err != nil {
 				return fmt.Errorf("failed to save pseudo message: %w", err)
 			}
 		}

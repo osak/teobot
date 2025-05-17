@@ -14,9 +14,9 @@ import (
 
 const createChatgptMessage = `-- name: CreateChatgptMessage :one
 INSERT INTO chatgpt_messages (
-    id, message_type, json_body, user_name, mastodon_status_id, timestamp
-) VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp
+    id, message_type, json_body, user_name, mastodon_status_id, timestamp, privacy_level
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp, privacy_level
 `
 
 type CreateChatgptMessageParams struct {
@@ -26,6 +26,7 @@ type CreateChatgptMessageParams struct {
 	UserName         string
 	MastodonStatusID pgtype.Text
 	Timestamp        pgtype.Timestamptz
+	PrivacyLevel     pgtype.Text
 }
 
 func (q *Queries) CreateChatgptMessage(ctx context.Context, arg CreateChatgptMessageParams) (ChatgptMessage, error) {
@@ -36,6 +37,7 @@ func (q *Queries) CreateChatgptMessage(ctx context.Context, arg CreateChatgptMes
 		arg.UserName,
 		arg.MastodonStatusID,
 		arg.Timestamp,
+		arg.PrivacyLevel,
 	)
 	var i ChatgptMessage
 	err := row.Scan(
@@ -47,6 +49,7 @@ func (q *Queries) CreateChatgptMessage(ctx context.Context, arg CreateChatgptMes
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Timestamp,
+		&i.PrivacyLevel,
 	)
 	return i, err
 }
@@ -81,7 +84,7 @@ func (q *Queries) CreateChatgptThreadRel(ctx context.Context, arg CreateChatgptT
 }
 
 const findChatgptMessageByMastodonStatusId = `-- name: FindChatgptMessageByMastodonStatusId :one
-SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp
+SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp, privacy_level
 FROM chatgpt_messages
 WHERE mastodon_status_id = $1
 `
@@ -98,6 +101,7 @@ func (q *Queries) FindChatgptMessageByMastodonStatusId(ctx context.Context, mast
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Timestamp,
+		&i.PrivacyLevel,
 	)
 	return i, err
 }

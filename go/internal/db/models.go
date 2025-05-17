@@ -17,6 +17,7 @@ type ChatgptMessage struct {
 	MastodonStatusID pgtype.Text
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
+	Timestamp        pgtype.Timestamptz
 }
 
 type ChatgptThread struct {

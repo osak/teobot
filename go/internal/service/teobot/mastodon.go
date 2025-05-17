@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -251,12 +252,18 @@ func (m *MastodonTeobotFrontend) ReconcileThread(ctx context.Context, statusId s
 			m.Logger.Error("Failed to marshal message", "error", err)
 			continue
 		}
+		posted, err := time.Parse(time.RFC3339, status.CreatedAt)
+		if err != nil {
+			m.Logger.Error("Failed to parse status createdAt", "error", err)
+			continue
+		}
 		params := db.CreateChatgptMessageParams{
 			ID:               uuid.Must(uuid.NewV7()),
 			MessageType:      "mastodon_status",
 			JsonBody:         jsonBody,
 			UserName:         message.Name,
 			MastodonStatusID: pgtype.Text{String: status.ID, Valid: true},
+			Timestamp:        pgtype.Timestamptz{Time: posted, Valid: true},
 		}
 		chatgptMessage, err := qtx.CreateChatgptMessage(ctx, params)
 		if err != nil {
@@ -323,31 +330,38 @@ func (m *MastodonTeobotFrontend) ProcessReply(ctx context.Context, statusId stri
 	return nil
 }
 
-func (m *MastodonTeobotFrontend) BuildThreadHistory(acct string) (*history.ThreadHistory, error) {
-	// Get all history files for this account
-	threads, err := m.HistoryService.GetHistory(acct, 10)
+func (m *MastodonTeobotFrontend) BuildThreadHistory(ctx context.Context, acct string) ([][]service.Message, error) {
+	// Grab the recent thread IDs based on 100 recent recorded messages from the user
+	threadIds, err := m.queries.GetRecentThreadIdsByUserName(ctx, db.GetRecentThreadIdsByUserNameParams{UserName: acct, Limit: 100})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get recent thread IDs: %w", err)
 	}
 
-	// Convert to Mastodon thread history
-	var mastodonThreads [][]*mastodon.PartialStatus
-	for _, thread := range threads {
-		if containsDirectVisibility(thread) {
-			continue
-		}
-		var mastodonThread []*mastodon.PartialStatus
-		for _, status := range thread {
-			mastodonThread = append(mastodonThread, &mastodon.PartialStatus{
-				Account:   status.Account,
-				Content:   mastodon.NormalizeStatusContent(status),
-				CreatedAt: status.CreatedAt,
-			})
-		}
-		mastodonThreads = append(mastodonThreads, mastodonThread)
+	// Limit the number of threads to 10
+	if len(threadIds) > 10 {
+		threadIds = threadIds[:10]
 	}
 
-	return &history.ThreadHistory{Threads: mastodonThreads}, nil
+	// Get the thread messages from the database
+	chatHistories := make([][]service.Message, len(threadIds))
+	for i, threadId := range threadIds {
+		messages, err := m.queries.GetChatgptMessagesByThreadId(ctx, threadId)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chatgpt thread messages: %w", err)
+		}
+		// Convert to service.Message
+		history := make([]service.Message, len(messages))
+		for j, message := range messages {
+			var msg service.Message
+			if err := json.Unmarshal(message.JsonBody, &msg); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal message: %w", err)
+			}
+			history[j] = msg
+		}
+		chatHistories[i] = history
+	}
+
+	return chatHistories, nil
 }
 
 func (m *MastodonTeobotFrontend) SaveMessageInThread(ctx context.Context, message service.Message, messageType string, threadId uuid.UUID, statusId string) error {
@@ -378,6 +392,7 @@ func (m *MastodonTeobotFrontend) SaveMessageInThread(ctx context.Context, messag
 		JsonBody:         jsonBody,
 		UserName:         message.Name,
 		MastodonStatusID: mastodonStatusID,
+		Timestamp:        pgtype.Timestamptz{Time: time.Now(), Valid: true},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to save chatgpt message: %w", err)
@@ -402,7 +417,7 @@ type ReplyToResult struct {
 }
 
 func (m *MastodonTeobotFrontend) ReplyTo(ctx context.Context, status *mastodon.Status) (*ReplyToResult, error) {
-	threadHistory, err := m.BuildThreadHistory(status.Account.Acct)
+	threadHistory, err := m.BuildThreadHistory(ctx, status.Account.Acct)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build thread history: %w", err)
 	}

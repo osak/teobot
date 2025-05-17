@@ -14,9 +14,9 @@ import (
 
 const createChatgptMessage = `-- name: CreateChatgptMessage :one
 INSERT INTO chatgpt_messages (
-    id, message_type, json_body, user_name, mastodon_status_id
-) VALUES ($1, $2, $3, $4, $5)
-RETURNING id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at
+    id, message_type, json_body, user_name, mastodon_status_id, timestamp
+) VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp
 `
 
 type CreateChatgptMessageParams struct {
@@ -25,6 +25,7 @@ type CreateChatgptMessageParams struct {
 	JsonBody         []byte
 	UserName         string
 	MastodonStatusID pgtype.Text
+	Timestamp        pgtype.Timestamptz
 }
 
 func (q *Queries) CreateChatgptMessage(ctx context.Context, arg CreateChatgptMessageParams) (ChatgptMessage, error) {
@@ -34,6 +35,7 @@ func (q *Queries) CreateChatgptMessage(ctx context.Context, arg CreateChatgptMes
 		arg.JsonBody,
 		arg.UserName,
 		arg.MastodonStatusID,
+		arg.Timestamp,
 	)
 	var i ChatgptMessage
 	err := row.Scan(
@@ -44,6 +46,7 @@ func (q *Queries) CreateChatgptMessage(ctx context.Context, arg CreateChatgptMes
 		&i.MastodonStatusID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Timestamp,
 	)
 	return i, err
 }
@@ -78,7 +81,7 @@ func (q *Queries) CreateChatgptThreadRel(ctx context.Context, arg CreateChatgptT
 }
 
 const findChatgptMessageByMastodonStatusId = `-- name: FindChatgptMessageByMastodonStatusId :one
-SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at
+SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp
 FROM chatgpt_messages
 WHERE mastodon_status_id = $1
 `
@@ -94,6 +97,7 @@ func (q *Queries) FindChatgptMessageByMastodonStatusId(ctx context.Context, mast
 		&i.MastodonStatusID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Timestamp,
 	)
 	return i, err
 }
@@ -178,4 +182,42 @@ func (q *Queries) GetMaxSequenceNum(ctx context.Context, threadID uuid.UUID) (in
 	var max_sequence_num int32
 	err := row.Scan(&max_sequence_num)
 	return max_sequence_num, err
+}
+
+const getRecentThreadIdsByUserName = `-- name: GetRecentThreadIdsByUserName :many
+SELECT DISTINCT thread_id
+FROM chatgpt_threads_rel
+WHERE chatgpt_message_id IN (
+    SELECT id
+    FROM chatgpt_messages
+    WHERE user_name = $1
+    AND message_type != 'pseudo_message'
+    ORDER BY timestamp DESC
+    LIMIT $2
+)
+`
+
+type GetRecentThreadIdsByUserNameParams struct {
+	UserName string
+	Limit    int32
+}
+
+func (q *Queries) GetRecentThreadIdsByUserName(ctx context.Context, arg GetRecentThreadIdsByUserNameParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, getRecentThreadIdsByUserName, arg.UserName, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var thread_id uuid.UUID
+		if err := rows.Scan(&thread_id); err != nil {
+			return nil, err
+		}
+		items = append(items, thread_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

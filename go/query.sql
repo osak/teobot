@@ -1,7 +1,7 @@
 -- name: CreateChatgptMessage :one
 INSERT INTO chatgpt_messages (
-    id, message_type, json_body, user_name, mastodon_status_id
-) VALUES ($1, $2, $3, $4, $5)
+    id, message_type, json_body, user_name, mastodon_status_id, timestamp
+) VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: FindChatgptMessageByMastodonStatusId :one
@@ -38,3 +38,15 @@ ORDER BY thread_id, sequence_num;
 SELECT COALESCE(MAX(sequence_num), 0)::INT AS max_sequence_num
 FROM chatgpt_threads_rel
 WHERE thread_id = $1;
+
+-- name: GetRecentThreadIdsByUserName :many
+SELECT DISTINCT thread_id
+FROM chatgpt_threads_rel
+WHERE chatgpt_message_id IN (
+    SELECT id
+    FROM chatgpt_messages
+    WHERE user_name = $1
+    AND message_type != 'pseudo_message'
+    ORDER BY timestamp DESC
+    LIMIT $2
+);

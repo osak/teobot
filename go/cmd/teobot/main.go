@@ -116,7 +116,8 @@ func (t *TeokureCli) RunCommand(commandStr string) error {
 		acct := parts[0]
 		// Ignoring limitStr for now
 
-		history, err := t.mastodonTeobotFrontend.BuildThreadHistory(acct)
+		ctx := context.Background()
+		history, err := t.mastodonTeobotFrontend.BuildThreadHistory(ctx, acct)
 		if err != nil {
 			return fmt.Errorf("failed to build thread history: %w", err)
 		}

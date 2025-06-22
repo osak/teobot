@@ -536,9 +536,8 @@ func (m *MastodonTeobotFrontend) ReplyAndPost(ctx context.Context, status *masto
 	if idx := strings.LastIndex(content, "<responseMeta>"); idx >= 0 {
 		content = content[:idx]
 	}
-	result.RepsonseMessage.Content = content
 
-	sanitized := text.ReplaceAll(text.New(result.RepsonseMessage.Content), "@", "@ ")
+	sanitized := text.ReplaceAll(text.New(content), "@", "@ ")
 	texts := []*text.Text{sanitized}
 	if sanitized.Len() > 450 {
 		texts, err = m.TextSplitService.SplitText(sanitized, 450)

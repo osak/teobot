@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -528,6 +529,14 @@ func (m *MastodonTeobotFrontend) ReplyAndPost(ctx context.Context, status *masto
 		return fmt.Errorf("failed to generate reply to the status: %w", err)
 	}
 	m.Logger.Info("Reply generated.", "result", result.RepsonseMessage.Content)
+
+	// Remove <responseMeta>...</responseMeta> section from the response
+	// NOTE: Current code assumes that this section will only appear in the end of the response.
+	content := result.RepsonseMessage.Content
+	if idx := strings.LastIndex(content, "<responseMeta>"); idx >= 0 {
+		content = content[:idx]
+	}
+	result.RepsonseMessage.Content = content
 
 	sanitized := text.ReplaceAll(text.New(result.RepsonseMessage.Content), "@", "@ ")
 	texts := []*text.Text{sanitized}

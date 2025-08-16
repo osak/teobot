@@ -85,7 +85,7 @@ func NewChatGPT(apiKey string) *ChatGPT {
 func (c *ChatGPT) Chat(messages []Message, tools []Tool) (*Message, error) {
 	// Prepare the request payload
 	reqBody := map[string]interface{}{
-		"model":    "gpt-5",
+		"model":    "gpt-5-mini",
 		"messages": messages,
 	}
 

@@ -11,6 +11,13 @@ services:
       - ./tmp:/opt/teobot/tmp
     restart: always
 
+  teobot-cli:
+    image: teobot
+    volumes:
+      - ./data:/opt/teobot/data
+      - ./tmp:/opt/teobot/tmp
+    command: './bin/teobot'
+
   db:
     image: 'postgres:17.5-bullseye'
     ports:

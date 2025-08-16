@@ -4,7 +4,7 @@ services:
   teobot:
     image: teobot
     build:
-      context: go
+      context: .
       dockerfile: Dockerfile
     volumes:
       - ./data:/opt/teobot/data

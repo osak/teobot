@@ -1,9 +1,15 @@
-FROM node:18-alpine
+FROM golang:1.24
 
-COPY src /opt/teobot/src
-COPY build/env.json package.json package-lock.json tsconfig.json /opt/teobot/
-WORKDIR "/opt/teobot"
+ARG BUILD_TIMESTAMP
 
-RUN npm install
+WORKDIR /usr/src/app
 
-ENTRYPOINT ["npm", "run", "cli-teokure", "server"]
+# pre-copy/cache go.mod for pre-downloading dependencies and only redownloading them in subsequent builds if they change
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN make
+
+ENV BUILD_TIMESTAMP=${BUILD_TIMESTAMP}
+CMD ["./bin/teobot", "server"]

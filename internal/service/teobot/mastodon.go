@@ -50,7 +50,7 @@ func NewMastodonTeobotFrontend(client *mastodon.Client, teobotService *service.T
 
 	queries := db.New(pool)
 	m := &MastodonTeobotFrontend{
-		Logger:            slog.New(slog.NewTextHandler(os.Stdout, nil)).With("component", "mastodon-teobot-frontend"),
+		Logger:            slog.With("component", "mastodon-teobot-frontend"),
 		Client:            client,
 		TeobotService:     teobotService,
 		ThreadRecollector: &service.MastodonThreadRecollector{Client: client},

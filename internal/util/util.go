@@ -3,7 +3,6 @@ package util
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"regexp"
 	"time"
 )
@@ -26,7 +25,7 @@ func WithRetry[T any](config RetryConfig, fn func() (T, error)) (T, error) {
 		config.Label = "__unnamed__"
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil)).With("component", fmt.Sprintf("retry-%s", config.Label))
+	logger := slog.With("component", fmt.Sprintf("retry-%s", config.Label))
 
 	var lastErr error
 	for i := 1; i <= config.MaxAttempts; i++ {

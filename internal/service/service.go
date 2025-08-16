@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"math/rand"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/osak/teobot/internal/api"
@@ -222,7 +221,7 @@ func NewTeobotService(chatGPT *ChatGPT, jmaAPI api.JmaAPI, dalleAPI *DallE) *Teo
 		chatGPT:  chatGPT,
 		jmaAPI:   jmaAPI,
 		dalleAPI: dalleAPI,
-		logger:   slog.New(slog.NewTextHandler(os.Stdout, nil)).With("component", "teobot-service"),
+		logger:   slog.With("component", "teobot-service"),
 	}
 }
 

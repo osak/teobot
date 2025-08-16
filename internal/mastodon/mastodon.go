@@ -9,7 +9,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -27,7 +26,7 @@ type Client struct {
 
 // NewClient creates a new Mastodon API client
 func NewClient(baseURL, clientKey, clientSecret, accessToken string) *Client {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil)).With("component", "mastodon")
+	logger := slog.With("component", "mastodon")
 
 	return &Client{
 		baseURL:      baseURL,

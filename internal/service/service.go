@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	ct "context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -212,15 +213,17 @@ type TeobotService struct {
 	chatGPT  *ChatGPT
 	jmaAPI   api.JmaAPI
 	dalleAPI *DallE
+	openAI   *api.OpenAIClient
 	logger   *slog.Logger
 }
 
 // NewTeobotService creates a new Teobot service
-func NewTeobotService(chatGPT *ChatGPT, jmaAPI api.JmaAPI, dalleAPI *DallE) *TeobotService {
+func NewTeobotService(chatGPT *ChatGPT, jmaAPI api.JmaAPI, dalleAPI *DallE, openAI *api.OpenAIClient) *TeobotService {
 	return &TeobotService{
 		chatGPT:  chatGPT,
 		jmaAPI:   jmaAPI,
 		dalleAPI: dalleAPI,
+		openAI:   openAI,
 		logger:   slog.With("component", "teobot-service"),
 	}
 }
@@ -350,6 +353,19 @@ func (t *TeobotService) NewChatContext(extraContext string) *ChatContext {
 	}
 }
 
+func convertMessageType(message *Message) api.Message {
+	return api.Message{
+		Role: message.Role,
+		Content: []api.MessageContent{
+			{
+				Text: message.Content,
+				Type: "input_text",
+			},
+		},
+		Type: "message",
+	}
+}
+
 // Chat sends a message to the AI and gets a response
 func (t *TeobotService) Chat(context *ChatContext, userMessage Message) (*ChatResponse, error) {
 	// Build the messages array
@@ -371,76 +387,97 @@ func (t *TeobotService) Chat(context *ChatContext, userMessage Message) (*ChatRe
 	imageURLs := []string{}
 
 	// Get response from ChatGPT
-	response, err := t.chatGPT.Chat(messages, context.Tools)
+	ctx := ct.Background()
+	var apiMessages []api.Message
+	for _, msg := range messages {
+		apiMessages = append(apiMessages, convertMessageType(&msg))
+	}
+
+	reasoningEffort := "minimal"
+	req := api.CreateResponsesRequest{
+		Model: "gpt-5",
+		Input: apiMessages,
+		Reasoning: &api.Reasoning{
+			Effort: &reasoningEffort,
+		},
+	}
+	response, err := t.openAI.CreateResponses(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	messages = append(messages, *response)
+
+	var responseMsg Message
+	for _, outmsg := range response.Output {
+		t.logger.Debug("Processing field", slog.String("field", outmsg.Type))
+		if outmsg.Type == "message" {
+			content, ok := outmsg.Content.(string)
+			if !ok {
+				t.logger.Debug("Not ok")
+				contents, ok := outmsg.Content.([]interface{})
+				if ok {
+					for _, c := range contents {
+						obj := c.(map[string]interface{})
+						if obj["type"] == "output_text" {
+							t.logger.Debug("Output chunk", slog.String("chunk", obj["text"].(string)))
+							content += obj["text"].(string)
+						}
+					}
+				}
+			}
+
+			responseMsg = Message{
+				Role:    outmsg.Role,
+				Content: content,
+			}
+		}
+	}
 
 	// Process tool calls if present
-	if len(response.ToolCalls) > 0 {
-		// Handle tool calls
-		for i := 0; i < 10; i++ { // Limit iterations to prevent infinite loops
-			if len(response.ToolCalls) == 0 {
-				break
-			}
-
-			// Process each tool call
-			var toolMessages []Message
-			for _, toolCall := range response.ToolCalls {
-				t.logger.Info("Processing tool call", "toolCall", toolCall)
-				toolResult, err := t.executeToolCall(toolCall)
-				if err != nil {
-					toolResult = fmt.Sprintf("Error: %v", err)
+	/*
+		if len(response.ToolCalls) > 0 {
+			// Handle tool calls
+			for i := 0; i < 10; i++ { // Limit iterations to prevent infinite loops
+				if len(response.ToolCalls) == 0 {
+					break
 				}
-				t.logger.Info("Tool call result", "toolCall", toolCall, "result", toolResult)
 
-				toolMessages = append(toolMessages, Message{
-					Role:       "tool",
-					Content:    toolResult,
-					ToolCallID: toolCall.ID,
-				})
-			}
+				// Process each tool call
+				var toolMessages []Message
+				for _, toolCall := range response.ToolCalls {
+					t.logger.Info("Processing tool call", "toolCall", toolCall)
+					toolResult, err := t.executeToolCall(toolCall)
+					if err != nil {
+						toolResult = fmt.Sprintf("Error: %v", err)
+					}
+					t.logger.Info("Tool call result", "toolCall", toolCall, "result", toolResult)
 
-			// Add tool messages to history
-			messages = append(messages, toolMessages...)
+					toolMessages = append(toolMessages, Message{
+						Role:       "tool",
+						Content:    toolResult,
+						ToolCallID: toolCall.ID,
+					})
+				}
 
-			// Get next response from ChatGPT
-			nextResponse, err := t.chatGPT.Chat(messages, context.Tools)
-			if err != nil {
-				return nil, err
-			}
-			messages = append(messages, *nextResponse)
+				// Add tool messages to history
+				messages = append(messages, toolMessages...)
 
-			response = nextResponse
-			if len(response.ToolCalls) == 0 {
-				break
-			}
-		}
-	}
+				// Get next response from ChatGPT
+				nextResponse, err := t.chatGPT.Chat(messages, context.Tools)
+				if err != nil {
+					return nil, err
+				}
+				messages = append(messages, *nextResponse)
 
-	// Check if the response contains image generation requests
-	content := response.Content
-
-	// Simple pattern matching for "[画像生成: prompt]"
-	imageGenPattern := "[画像生成:"
-	if idx := bytes.Index([]byte(content), []byte(imageGenPattern)); idx >= 0 {
-		startIdx := idx + len(imageGenPattern)
-		endIdx := bytes.IndexByte([]byte(content[startIdx:]), ']')
-
-		if endIdx > 0 {
-			prompt := content[startIdx : startIdx+endIdx]
-			promptStr := string(bytes.TrimSpace([]byte(prompt)))
-
-			imgURL, err := t.dalleAPI.GenerateImage(promptStr)
-			if err == nil && imgURL != "" {
-				imageURLs = append(imageURLs, imgURL)
+				response = nextResponse
+				if len(response.ToolCalls) == 0 {
+					break
+				}
 			}
 		}
-	}
+	*/
 
 	return &ChatResponse{
-		Message:   *response,
+		Message:   responseMsg,
 		ImageURLs: imageURLs,
 	}, nil
 }

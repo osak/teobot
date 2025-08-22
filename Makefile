@@ -1,4 +1,4 @@
-.PHONY: all build_chat_history migration_up migration_down
+.PHONY: all build_chat_history migration_up migration_down bin/teobot
 
 all: bin/teobot
 

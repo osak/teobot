@@ -46,8 +46,9 @@ func NewTeokureCli(env *config.Env) (*TeokureCli, error) {
 	chatGPT := service.NewChatGPT(env.ChatGPTAPIKey)
 	jmaAPI := api.NewJmaApi()
 	dalleAPI := service.NewDallE(env.ChatGPTAPIKey)
+	openAIClient := api.NewOpenAIClient(env.ChatGPTAPIKey)
 
-	teobotService := service.NewTeobotService(chatGPT, jmaAPI, dalleAPI)
+	teobotService := service.NewTeobotService(chatGPT, jmaAPI, dalleAPI, openAIClient)
 	mastodonClient := mastodon.NewClient(env.MastodonBaseURL, env.MastodonClientKey, env.MastodonClientSecret, env.MastodonAccessToken)
 	textSplitService := textsplit.NewTextSplitService(chatGPT)
 	historyService := history.NewHistoryService(env.HistoryStoragePath)

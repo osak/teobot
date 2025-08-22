@@ -354,12 +354,18 @@ func (t *TeobotService) NewChatContext(extraContext string) *ChatContext {
 }
 
 func convertMessageType(message *Message) api.Message {
+	var msgType string
+	if message.Role == "assistant" {
+		msgType = "output_text"
+	} else {
+		msgType = "input_text"
+	}
 	return api.Message{
 		Role: message.Role,
 		Content: []api.MessageContent{
 			{
 				Text: message.Content,
-				Type: "input_text",
+				Type: msgType,
 			},
 		},
 		Type: "message",

@@ -19,6 +19,7 @@ import (
 	"github.com/osak/teobot/internal/db"
 	"github.com/osak/teobot/internal/history"
 	"github.com/osak/teobot/internal/mastodon"
+	"github.com/osak/teobot/internal/metrics"
 	"github.com/osak/teobot/internal/service"
 	"github.com/osak/teobot/internal/text"
 	"github.com/osak/teobot/internal/textsplit"
@@ -524,9 +525,17 @@ func (m *MastodonTeobotFrontend) ReplyToStatusId(ctx context.Context, id string)
 }
 
 func (m *MastodonTeobotFrontend) ReplyAndPost(ctx context.Context, status *mastodon.Status) error {
+	// Start a New Relic background transaction for a single reply workflow
+	ctx, txn := metrics.StartTxn(ctx, "teobot.reply")
+	if txn != nil {
+		defer txn.End()
+	}
+
 	result, err := m.ReplyTo(ctx, status)
 	if err != nil {
-		return fmt.Errorf("failed to generate reply to the status: %w", err)
+		wrapped := fmt.Errorf("failed to generate reply to the status: %w", err)
+		metrics.NoticeError(ctx, wrapped)
+		return wrapped
 	}
 	m.Logger.Info("Reply generated.", "result", result.RepsonseMessage.Content)
 
@@ -534,6 +543,29 @@ func (m *MastodonTeobotFrontend) ReplyAndPost(ctx context.Context, status *masto
 	// NOTE: Current code assumes that this section will only appear in the end of the response.
 	content := result.RepsonseMessage.Content
 	if idx := strings.LastIndex(content, "<responseMeta>"); idx >= 0 {
+		// Extract meta before stripping, so we can emit metrics
+		endIdx := strings.LastIndex(content, "</responseMeta>")
+		if endIdx > idx {
+			metaStr := content[idx+len("<responseMeta>") : endIdx]
+			var meta map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(metaStr)), &meta); err == nil {
+				if s, ok := meta["seriousness"].(string); ok {
+					switch strings.ToUpper(s) {
+					case "LOW":
+						metrics.RecordCount1("teobot/seriousness/LOW")
+					case "MED":
+						metrics.RecordCount1("teobot/seriousness/MED")
+					case "HIGH":
+						metrics.RecordCount1("teobot/seriousness/HIGH")
+					default:
+						metrics.RecordCount1("teobot/seriousness/UNKNOWN")
+					}
+				}
+			} else {
+				// Non-fatal, but record an error metric
+				metrics.NoticeError(ctx, fmt.Errorf("failed to parse responseMeta: %w", err))
+			}
+		}
 		content = content[:idx]
 	}
 
@@ -548,7 +580,9 @@ func (m *MastodonTeobotFrontend) ReplyAndPost(ctx context.Context, status *masto
 
 	privacyLevel := getPrivacyLevel(status)
 	if err := m.SaveMessageInThread(ctx, result.UserMessage, "user_status", result.ThreadId, privacyLevel, status.ID); err != nil {
-		return fmt.Errorf("failed to save user message: %w", err)
+		wrapped := fmt.Errorf("failed to save user message: %w", err)
+		metrics.NoticeError(ctx, wrapped)
+		return wrapped
 	}
 
 	inReplyToId := status.ID
@@ -559,24 +593,31 @@ func (m *MastodonTeobotFrontend) ReplyAndPost(ctx context.Context, status *masto
 			Visibility: status.Visibility,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to post status: %w", err)
+			wrapped := fmt.Errorf("failed to post status: %w", err)
+			metrics.NoticeError(ctx, wrapped)
+			return wrapped
 		}
 
 		if i == 0 {
 			if err := m.SaveMessageInThread(ctx, result.RepsonseMessage, "ai_response", result.ThreadId, privacyLevel, newStatus.ID); err != nil {
-				return fmt.Errorf("failed to save assistant message: %w", err)
+				wrapped := fmt.Errorf("failed to save assistant message: %w", err)
+				metrics.NoticeError(ctx, wrapped)
+				return wrapped
 			}
 		} else {
 			// Insert pseudo message to the database for looking up the thread
 			pseudoMessage := m.convertToMessage(newStatus)
 			if err := m.SaveMessageInThread(ctx, *pseudoMessage, "pseudo_message", result.ThreadId, privacyLevel, newStatus.ID); err != nil {
-				return fmt.Errorf("failed to save pseudo message: %w", err)
+				wrapped := fmt.Errorf("failed to save pseudo message: %w", err)
+				metrics.NoticeError(ctx, wrapped)
+				return wrapped
 			}
 		}
 
 		inReplyToId = newStatus.ID
 	}
-
+	// Count a processed reply
+	metrics.RecordCount1("teobot/replies/processed")
 	return nil
 }
 

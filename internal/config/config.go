@@ -14,6 +14,8 @@ type Env struct {
 	TeokureStoragePath   string
 	HistoryStoragePath   string
 	DBConnectionString   string
+	NewRelicLicenseKey   string
+	NewRelicAppName      string
 }
 
 // LoadEnvFromOS loads environment variables from the OS
@@ -27,6 +29,8 @@ func LoadEnvFromOS() *Env {
 		TeokureStoragePath:   getEnv("TEOKURE_STORAGE_PATH", "data"),
 		HistoryStoragePath:   getEnv("HISTORY_STORAGE_PATH", "tmp"),
 		DBConnectionString:   getEnv("DB_CONNECTION_STRING", ""),
+		NewRelicLicenseKey:   getEnv("NEW_RELIC_LICENSE_KEY", ""),
+		NewRelicAppName:      getEnv("NEW_RELIC_APP_NAME", "teobot"),
 	}
 }
 

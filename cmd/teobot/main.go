@@ -19,6 +19,7 @@ import (
 	"github.com/osak/teobot/internal/config"
 	"github.com/osak/teobot/internal/history"
 	"github.com/osak/teobot/internal/mastodon"
+	"github.com/osak/teobot/internal/metrics"
 	"github.com/osak/teobot/internal/service"
 	"github.com/osak/teobot/internal/service/teobot"
 	"github.com/osak/teobot/internal/textsplit"
@@ -200,6 +201,11 @@ func main() {
 
 	// Load environment variables
 	env := config.LoadEnvFromOS()
+
+	// Initialize New Relic (if license key provided)
+	if err := metrics.Init(env.NewRelicAppName, env.NewRelicLicenseKey); err != nil {
+		slog.Error("Failed to initialize New Relic", "error", err)
+	}
 
 	cli, err := NewTeokureCli(env)
 	if err != nil {

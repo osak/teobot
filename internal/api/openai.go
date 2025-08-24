@@ -1,14 +1,18 @@
 package api
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	"time"
+    "bytes"
+    "context"
+    "encoding/json"
+    "fmt"
+    "io"
+    "log/slog"
+    "net/http"
+    "time"
+)
+
+import (
+    "github.com/osak/teobot/internal/metrics"
 )
 
 type CreateResponsesRequest struct {
@@ -134,7 +138,7 @@ func (o *OpenAIClient) CreateResponses(ctx context.Context, req CreateResponsesR
 	)
 	logger.Debug("starting OpenAI API request")
 
-	url := fmt.Sprintf("%s/responses", o.baseURL)
+    url := fmt.Sprintf("%s/responses", o.baseURL)
 
 	jsonData, err := json.Marshal(req)
 	if err != nil {
@@ -150,49 +154,70 @@ func (o *OpenAIClient) CreateResponses(ctx context.Context, req CreateResponsesR
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", o.apiKey))
 
-	logger.Debug("sending request", slog.String("url", url))
-	start := time.Now()
+    logger.Debug("sending request", slog.String("url", url))
+    start := time.Now()
+    // Start NR external segment if transaction exists
+    endSeg := metrics.StartExternalSegment(ctx, url)
+    resp, err := o.client.Do(httpReq)
+    if err != nil {
+        endSeg()
+        if ctx.Err() != nil {
+            wrapped := fmt.Errorf("request cancelled: %w", ctx.Err())
+            metrics.NoticeError(ctx, wrapped)
+            return nil, wrapped
+        }
+        wrapped := fmt.Errorf("failed to send request: %w", err)
+        metrics.NoticeError(ctx, wrapped)
+        return nil, wrapped
+    }
+    defer resp.Body.Close()
+    endSeg()
 
-	resp, err := o.client.Do(httpReq)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("request cancelled: %w", ctx.Err())
-		}
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
+    logger.Debug("received response",
+        slog.Int("status_code", resp.StatusCode),
+        slog.Duration("elapsed", time.Since(start)))
 
-	logger.Debug("received response",
-		slog.Int("status_code", resp.StatusCode),
-		slog.Duration("elapsed", time.Since(start)))
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        wrapped := fmt.Errorf("failed to read response body: %w", err)
+        metrics.NoticeError(ctx, wrapped)
+        return nil, wrapped
+    }
+    logger.Debug("Body", slog.String("body", string(body)))
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-	logger.Debug("Body", slog.String("body", string(body)))
+    if resp.StatusCode != http.StatusOK {
+        var errResp ErrorResponse
+        if err := json.Unmarshal(body, &errResp); err != nil {
+            wrapped := fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+            metrics.NoticeError(ctx, wrapped)
+            return nil, wrapped
+        }
+        wrapped := fmt.Errorf("API error: %s (type: %s, code: %s)", errResp.Error.Message, errResp.Error.Type, errResp.Error.Code)
+        metrics.NoticeError(ctx, wrapped)
+        return nil, wrapped
+    }
 
-	if resp.StatusCode != http.StatusOK {
-		var errResp ErrorResponse
-		if err := json.Unmarshal(body, &errResp); err != nil {
-			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-		}
-		return nil, fmt.Errorf("API error: %s (type: %s, code: %s)", errResp.Error.Message, errResp.Error.Type, errResp.Error.Code)
-	}
+    var result CreateResponsesResponse
+    if err := json.Unmarshal(body, &result); err != nil {
+        wrapped := fmt.Errorf("failed to unmarshal response: %w", err)
+        metrics.NoticeError(ctx, wrapped)
+        return nil, wrapped
+    }
 
-	var result CreateResponsesResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
+    logger.Info("OpenAI API request completed successfully",
+        slog.String("response_id", result.ID),
+        slog.String("model", result.Model),
+        slog.Int("choices_count", len(result.Choices)),
+        slog.Int("prompt_tokens", result.Usage.PromptTokens),
+        slog.Int("completion_tokens", result.Usage.CompletionTokens),
+        slog.Int("total_tokens", result.Usage.TotalTokens),
+        slog.Duration("elapsed", time.Since(start)))
 
-	logger.Info("OpenAI API request completed successfully",
-		slog.String("response_id", result.ID),
-		slog.String("model", result.Model),
-		slog.Int("choices_count", len(result.Choices)),
-		slog.Int("prompt_tokens", result.Usage.PromptTokens),
-		slog.Int("completion_tokens", result.Usage.CompletionTokens),
-		slog.Int("total_tokens", result.Usage.TotalTokens),
-		slog.Duration("elapsed", time.Since(start)))
+    // Emit New Relic metrics
+    elapsedMs := float64(time.Since(start).Milliseconds())
+    metrics.RecordFloat("teobot/openai/response_time_ms", elapsedMs)
+    metrics.RecordFloat("teobot/openai/prompt_tokens", float64(result.Usage.PromptTokens))
+    metrics.RecordFloat("teobot/openai/completion_tokens", float64(result.Usage.CompletionTokens))
 
-	return &result, nil
+    return &result, nil
 }

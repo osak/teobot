@@ -13,12 +13,14 @@ type Env struct {
 	ChatGPTAPIKey        string
 	TeokureStoragePath   string
 	HistoryStoragePath   string
-	DBConnectionString   string
+    DBConnectionString   string
+    NewRelicLicenseKey   string
+    NewRelicAppName      string
 }
 
 // LoadEnvFromOS loads environment variables from the OS
 func LoadEnvFromOS() *Env {
-	return &Env{
+    return &Env{
 		MastodonBaseURL:      getEnv("MASTODON_BASE_URL", ""),
 		MastodonClientKey:    getEnv("MASTODON_CLIENT_KEY", ""),
 		MastodonClientSecret: getEnv("MASTODON_CLIENT_SECRET", ""),
@@ -26,8 +28,10 @@ func LoadEnvFromOS() *Env {
 		ChatGPTAPIKey:        getEnv("CHAT_GPT_API_KEY", ""),
 		TeokureStoragePath:   getEnv("TEOKURE_STORAGE_PATH", "data"),
 		HistoryStoragePath:   getEnv("HISTORY_STORAGE_PATH", "tmp"),
-		DBConnectionString:   getEnv("DB_CONNECTION_STRING", ""),
-	}
+        DBConnectionString:   getEnv("DB_CONNECTION_STRING", ""),
+        NewRelicLicenseKey:   getEnv("NEW_RELIC_LICENSE_KEY", ""),
+        NewRelicAppName:      getEnv("NEW_RELIC_APP_NAME", "teobot"),
+    }
 }
 
 // getEnv gets an environment variable or returns a default value

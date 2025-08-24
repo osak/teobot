@@ -9,18 +9,20 @@ import (
 
 // fakeProvider implements Provider and captures calls for assertions.
 type fakeProvider struct {
-    mu               sync.Mutex
-    inited           bool
-    counts           map[string]float64
-    observations     map[string][]float64
-    noticed          []error
-    txnsStarted      int
-    txnsEnded        int
-    externalsStarted []string
-    externalsEnded   int
+	mu               sync.Mutex
+	inited           bool
+	counts           map[string]float64
+	observations     map[string][]float64
+	noticed          []error
+	txnsStarted      int
+	txnsEnded        int
+	externalsStarted []string
+	externalsEnded   int
 }
 
-func newFakeProvider() *fakeProvider { return &fakeProvider{counts: map[string]float64{}, observations: map[string][]float64{}} }
+func newFakeProvider() *fakeProvider {
+	return &fakeProvider{counts: map[string]float64{}, observations: map[string][]float64{}}
+}
 
 func (f *fakeProvider) Init(appName, license string) error {
 	f.mu.Lock()
@@ -49,16 +51,16 @@ func (f *fakeProvider) StartExternal(ctx context.Context, url string) EndFunc {
 	}
 }
 func (f *fakeProvider) Count(name string, value float64) {
-    f.mu.Lock()
-    defer f.mu.Unlock()
-    f.counts[name] += value
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.counts[name] += value
 }
 func (f *fakeProvider) Observe(name string, value float64) {
-    f.mu.Lock()
-    defer f.mu.Unlock()
-    f.observations[name] = append(f.observations[name], value)
-    // Keep old tests simple by aggregating to counts too
-    f.counts[name] += value
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.observations[name] = append(f.observations[name], value)
+	// Keep old tests simple by aggregating to counts too
+	f.counts[name] += value
 }
 func (f *fakeProvider) NoticeError(ctx context.Context, err error) {
 	if err == nil {

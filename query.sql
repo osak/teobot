@@ -33,6 +33,22 @@ AND privacy_level != 'private'
 ORDER BY timestamp DESC
 LIMIT $1;
 
+-- name: GetFullChatgptMessagesByThreadId :many
+SELECT chatgpt_messages.*
+FROM chatgpt_messages
+ INNER JOIN chatgpt_threads_rel ON chatgpt_messages.id = chatgpt_threads_rel.chatgpt_message_id
+WHERE chatgpt_threads_rel.thread_id = $1
+  AND message_type != 'pseudo_message'
+ORDER BY chatgpt_threads_rel.sequence_num;
+
+-- name: GetRecentFullChatgptMessages :many
+SELECT *
+FROM chatgpt_messages
+WHERE message_type != 'pseudo_message'
+AND privacy_level != 'private'
+ORDER BY timestamp DESC
+LIMIT $1;
+
 -- name: CreateChatgptThreadRel :exec
 INSERT INTO chatgpt_threads_rel (
     thread_id, chatgpt_message_id, sequence_num

@@ -16,7 +16,6 @@ type ChatGpt struct {
 }
 
 type OpenAIObject interface {
-	GetType() string
 }
 
 type RawObject struct {
@@ -30,13 +29,25 @@ type OutputText struct {
 	Text string `json:"text"`
 }
 
-func (o *OutputText) GetType() string { return "output_text" }
+func (o OutputText) MarshalJSON() ([]byte, error) {
+	type Alias OutputText
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "output_text", Alias: Alias(o)})
+}
 
 type Refusal struct {
 	Refusal string `json:"refusal"`
 }
 
-func (r *Refusal) GetType() string { return "refusal" }
+func (o Refusal) MarshalJSON() ([]byte, error) {
+	type Alias Refusal
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "refusal", Alias: Alias(o)})
+}
 
 type Message struct {
 	// Message content of the output. Possible types:
@@ -45,12 +56,18 @@ type Message struct {
 	//   * (For input) InputText
 	//   * (For input) InputImage
 	Content []OpenAIObjectWrapper `json:"content"`
-	ID      string                `json:"id"`
-	Role    string                `json:"role"`
-	Status  string                `json:"status"`
+	ID      string                `json:"id,omitempty"`
+	Role    string                `json:"role,omitempty"`
+	Status  string                `json:"status,omitempty"`
 }
 
-func (m *Message) GetType() string { return "message" }
+func (o Message) MarshalJSON() ([]byte, error) {
+	type Alias Message
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "message", Alias: Alias(o)})
+}
 
 type FunctionCall struct {
 	// A JSON string of the arguments to pass to the function
@@ -62,19 +79,37 @@ type FunctionCall struct {
 	Status string `json:"status"`
 }
 
-func (f *FunctionCall) GetType() string { return "function_call" }
+func (o FunctionCall) MarshalJSON() ([]byte, error) {
+	type Alias FunctionCall
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "function_call", Alias: Alias(o)})
+}
 
 type SummaryText struct {
 	Text string `json:"text"`
 }
 
-func (s *SummaryText) GetType() string { return "summary_text" }
+func (o SummaryText) MarshalJSON() ([]byte, error) {
+	type Alias SummaryText
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "summary_text", Alias: Alias(o)})
+}
 
 type ReasoningText struct {
 	Text string `json:"text"`
 }
 
-func (r *ReasoningText) GetType() string { return "reasoning_text" }
+func (o ReasoningText) MarshalJSON() ([]byte, error) {
+	type Alias ReasoningText
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "reasoning_text", Alias: Alias(o)})
+}
 
 type Reasoning struct {
 	ID      string          `json:"id"`
@@ -83,7 +118,13 @@ type Reasoning struct {
 	Status  string          `json:"status"`
 }
 
-func (r *Reasoning) GetType() string { return "reasoning" }
+func (o Reasoning) MarshalJSON() ([]byte, error) {
+	type Alias Reasoning
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "reasoning", Alias: Alias(o)})
+}
 
 type CustomToolCall struct {
 	CallID string `json:"call_id"`
@@ -93,53 +134,75 @@ type CustomToolCall struct {
 	ID   string `json:"id"`
 }
 
-func (c *CustomToolCall) GetType() string { return "custom_tool_call" }
+func (o CustomToolCall) MarshalJSON() ([]byte, error) {
+	type Alias CustomToolCall
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "custom_tool_call", Alias: Alias(o)})
+}
 
 // https://platform.openai.com/docs/api-reference/responses/object
 type ResponsesResponse struct {
 	ID        string `json:"id"`
 	CreatedAt int64  `json:"created_at"`
 	Status    string `json:"status"`
-	Error     struct {
+	Error     *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
-	} `json:"error"`
-	IncompleteDetails struct {
+	} `json:"error,omitempty"`
+	IncompleteDetails *struct {
 		Reason string `json:"reason"`
-	} `json:"incomplete_details"`
-	MaxOutputTokens int    `json:"max_output_tokens"`
-	MaxToolCalls    int    `json:"max_tool_calls"`
+	} `json:"incomplete_details,omitempty"`
+	MaxOutputTokens *int   `json:"max_output_tokens,omitempty"`
+	MaxToolCalls    *int   `json:"max_tool_calls,omitempty"`
 	Model           string `json:"model"`
 	// Output from the model. Possible types (currently implemented):
 	//   * Message
 	//   * FunctionCall
 	//   * CustomToolCall
 	Output             []OpenAIObjectWrapper `json:"output"`
-	PreviousResponseID string                `json:"previous_response_id"`
+	PreviousResponseID string                `json:"previous_response_id,omitempty"`
 }
 
 type InputText struct {
 	Text string `json:"text"`
 }
 
-func (i *InputText) GetType() string { return "input_text" }
+func (o InputText) MarshalJSON() ([]byte, error) {
+	type Alias InputText
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "input_text", Alias: Alias(o)})
+}
 
 type InputImage struct {
 	Detail   string `json:"detail"`
 	ImageUrl string `json:"image_url"`
 }
 
-func (i *InputImage) GetType() string { return "input_image" }
+func (o InputImage) MarshalJSON() ([]byte, error) {
+	type Alias InputImage
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Alias
+	}{Type: "input_image", Alias: Alias(o)})
+}
 
 type ResponsesRequest struct {
 	// Possible types:
 	//   * Message
 	Input []OpenAIObjectWrapper `json:"input"`
-	Type  string                `json:"type"`
+	Model string                `json:"model"`
 }
 
 type OpenAIObjectWrapper struct {
 	Obj OpenAIObject
+}
+
+func Wrap(o OpenAIObject) OpenAIObjectWrapper {
+	return OpenAIObjectWrapper{Obj: o}
 }
 
 func unmarshalAs[T any](obj *T, b []byte) (*T, error) {
@@ -147,6 +210,10 @@ func unmarshalAs[T any](obj *T, b []byte) (*T, error) {
 		return nil, err
 	}
 	return obj, nil
+}
+
+func (o OpenAIObjectWrapper) MarshalJSON() ([]byte, error) {
+	return json.Marshal(o.Obj)
 }
 
 func (o *OpenAIObjectWrapper) UnmarshalJSON(b []byte) error {
@@ -200,8 +267,8 @@ func New(apiKey string) *ChatGpt {
 	}
 }
 
-func (c *ChatGpt) Responses(ctx context.Context) (*ResponsesResponse, error) {
-	return nil, nil
+func (c *ChatGpt) Responses(ctx context.Context, request *ResponsesRequest) (*ResponsesResponse, error) {
+	return doRequest[ResponsesResponse](c, ctx, "/responses", request)
 }
 
 func doRequest[T any](c *ChatGpt, ctx context.Context, path string, payload any) (*T, error) {
@@ -216,12 +283,13 @@ func doRequest[T any](c *ChatGpt, ctx context.Context, path string, payload any)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	slog.Info(string(jsonPayload))
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %v", err)
 	}
-	defer handleError("failed to close response body", resp.Body.Close())
+	defer func() { handleError("failed to close response body", resp.Body.Close()) }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

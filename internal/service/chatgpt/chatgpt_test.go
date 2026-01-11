@@ -2,6 +2,7 @@ package chatgpt
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -79,5 +80,54 @@ func TestOpenAITypedObjectWrapper_UnmarshalJSON(t *testing.T) {
 	}
 	if output2.GetType() != "unknown_type" {
 		t.Errorf("output2.GetTypeName() != \"unknown_type\", got: %s", output2.GetType())
+	}
+}
+
+func TestOpenAITypedObjectWrapper_MarshalJSON(t *testing.T) {
+	obj := OpenAIObjectWrapper{
+		Obj: &Message{
+			Content: []OpenAIObjectWrapper{
+				{
+					Obj: &OutputText{
+						Text: "foo",
+					},
+				},
+				{
+					Obj: &InputText{
+						Text: "bar",
+					},
+				},
+			},
+		},
+	}
+	payload, err := json.Marshal(&obj)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fmt.Printf("payload: %v\n", string(payload))
+	rawMap := make(map[string]interface{})
+	if err := json.Unmarshal(payload, &rawMap); err != nil {
+		t.Error(err)
+	}
+
+	if rawMap["type"] != "message" {
+		t.Errorf(".type != \"message\", got: %s", rawMap["type"])
+	}
+	contents := rawMap["content"].([]any)
+	content0 := contents[0].(map[string]any)
+	if content0["type"] != "output_text" {
+		t.Errorf(".content.[0].type != \"output_text\", got: %s", content0["type"])
+	}
+	if content0["text"] != "foo" {
+		t.Errorf(".content.[0].text != \"foo\", got: %s", content0["text"])
+	}
+
+	content1 := contents[1].(map[string]any)
+	if content1["type"] != "input_text" {
+		t.Errorf(".content.[1].type != \"input_text\", got: %s", content1["type"])
+	}
+	if content1["text"] != "bar" {
+		t.Errorf(".content.[1].text != \"bar\", got: %s", content1["text"])
 	}
 }

@@ -263,6 +263,15 @@ func (r *ResponsesResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (r ResponsesResponse) MarshalJSON() ([]byte, error) {
+	type Alias ResponsesResponse
+	payload := struct {
+		Alias
+		Output []Output `json:"output"`
+	}{Alias: Alias(r), Output: r.Output}
+	return json.Marshal(payload)
+}
+
 type InputText struct {
 	Text string `json:"text"`
 }
@@ -288,61 +297,11 @@ func (o InputImage) MarshalJSON() ([]byte, error) {
 	}{Type: "input_image", Alias: Alias(o)})
 }
 
-type OpenAIObjectWrapper struct {
-	Obj OpenAIObject
-}
-
-func Wrap(o OpenAIObject) OpenAIObjectWrapper {
-	return OpenAIObjectWrapper{Obj: o}
-}
-
 func unmarshalAs[T any](obj *T, b []byte) (*T, error) {
 	if err := json.Unmarshal(b, obj); err != nil {
 		return nil, err
 	}
 	return obj, nil
-}
-
-func (o OpenAIObjectWrapper) MarshalJSON() ([]byte, error) {
-	return json.Marshal(o.Obj)
-}
-
-func (o *OpenAIObjectWrapper) UnmarshalJSON(b []byte) error {
-	var typeTag struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal(b, &typeTag); err != nil {
-		return fmt.Errorf("expected OpenAI typed struct but `type` is not found : %w", err)
-	}
-
-	var err error
-	switch typeTag.Type {
-	case "custom_tool_call":
-		o.Obj, err = unmarshalAs(&CustomToolCall{}, b)
-	case "function_call":
-		o.Obj, err = unmarshalAs(&FunctionCall{}, b)
-	case "message":
-		o.Obj, err = unmarshalAs(&Message{}, b)
-	case "output_text":
-		o.Obj, err = unmarshalAs(&OutputText{}, b)
-	case "reasoning":
-		o.Obj, err = unmarshalAs(&Reasoning{}, b)
-	case "reasoning_text":
-		o.Obj, err = unmarshalAs(&ReasoningText{}, b)
-	case "refusal":
-		o.Obj, err = unmarshalAs(&Refusal{}, b)
-	case "summary_text":
-		o.Obj, err = unmarshalAs(&SummaryText{}, b)
-	default:
-		o.Obj = &RawObject{
-			Type: typeTag.Type,
-			Data: nil,
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal OpenAI object of type %s: %w", typeTag.Type, err)
-	}
-	return nil
 }
 
 func handleError(msg string, err error) {
@@ -359,8 +318,8 @@ func New(apiKey string) *ChatGpt {
 }
 
 type ResponsesRequest struct {
-	Input []OpenAIObject
-	Model string
+	Input []OpenAIObject `json:"input"`
+	Model string         `json:"model"`
 }
 
 func (c *ChatGpt) compileInputMessagePayload(obj OpenAIObject) (json.RawMessage, error) {

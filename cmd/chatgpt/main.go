@@ -17,10 +17,10 @@ func main() {
 		Input: []chatgpt.OpenAIObject{
 			&chatgpt.Message{
 				Role: "user",
-				Content: []chatgpt.OpenAIObjectWrapper{
-					chatgpt.Wrap(chatgpt.InputText{
+				Content: []chatgpt.MessageContent{
+					chatgpt.InputText{
 						Text: "Hello",
-					}),
+					},
 				},
 			},
 		},

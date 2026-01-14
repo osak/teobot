@@ -14,15 +14,15 @@ func main() {
 	chatGpt := chatgpt.New(apiKey)
 	ctx := context.Background()
 	req := chatgpt.ResponsesRequest{
-		Input: []chatgpt.OpenAIObjectWrapper{
-			chatgpt.Wrap(&chatgpt.Message{
+		Input: []chatgpt.OpenAIObject{
+			&chatgpt.Message{
 				Role: "user",
 				Content: []chatgpt.OpenAIObjectWrapper{
 					chatgpt.Wrap(chatgpt.InputText{
 						Text: "Hello",
 					}),
 				},
-			}),
+			},
 		},
 		Model: "gpt-5-mini",
 	}

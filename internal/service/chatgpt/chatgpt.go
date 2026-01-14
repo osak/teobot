@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+
+	"github.com/perimeterx/marshmallow"
 )
 
 type ChatGpt struct {
@@ -18,9 +20,55 @@ type ChatGpt struct {
 type OpenAIObject interface {
 }
 
+func unmarshalAsFromMap[T any](data map[string]any, obj *T) (*T, error) {
+	if _, err := marshmallow.UnmarshalFromJSONMap(data, obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+func unmarshalOpenAIObject(data map[string]any) (res OpenAIObject, err error) {
+	rawTypeName, ok := data["type"]
+	if !ok {
+		return nil, fmt.Errorf("expected OpenAI typed struct but `type` is not found")
+	}
+	typeName, ok := rawTypeName.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected OpenAI typed struct but `type` is not string")
+	}
+
+	switch typeName {
+	case "custom_tool_call":
+		res, err = unmarshalAsFromMap(data, &CustomToolCall{})
+	case "function_call":
+		res, err = unmarshalAsFromMap(data, &FunctionCall{})
+	case "message":
+		res, err = unmarshalAsFromMap(data, &Message{})
+	case "output_text":
+		res, err = unmarshalAsFromMap(data, &OutputText{})
+	case "reasoning":
+		res, err = unmarshalAsFromMap(data, &Reasoning{})
+	case "reasoning_text":
+		res, err = unmarshalAsFromMap(data, &ReasoningText{})
+	case "refusal":
+		res, err = unmarshalAsFromMap(data, &Refusal{})
+	case "summary_text":
+		res, err = unmarshalAsFromMap(data, &SummaryText{})
+	default:
+		res = &RawObject{
+			Type: typeName,
+			Data: data,
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal OpenAI object of type %s: %w", typeName, err)
+	}
+	return res, nil
+}
+
 type RawObject struct {
-	Type  string
-	Bytes []byte
+	Type string
+	Data map[string]any
 }
 
 func (r *RawObject) GetType() string { return r.Type }
@@ -49,24 +97,57 @@ func (o Refusal) MarshalJSON() ([]byte, error) {
 	}{Type: "refusal", Alias: Alias(o)})
 }
 
+type MessageContent any
 type Message struct {
 	// Message content of the output. Possible types:
 	//   * (For output) OutputText
 	//   * (For output) Refusal
 	//   * (For input) InputText
 	//   * (For input) InputImage
-	Content []OpenAIObjectWrapper `json:"content"`
-	ID      string                `json:"id,omitempty"`
-	Role    string                `json:"role,omitempty"`
-	Status  string                `json:"status,omitempty"`
+	Content []MessageContent `json:"-"`
+	ID      string           `json:"id,omitempty"`
+	Role    string           `json:"role,omitempty"`
+	Status  string           `json:"status,omitempty"`
+}
+
+func (o *Message) UnmarshalJSONFromMap(data any) error {
+	dataMap, ok := data.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("expected map[string]interface{}, got %T", data)
+	}
+
+	wrapper := struct {
+		Message
+		Content []map[string]any `json:"content"`
+	}{}
+
+	_, err := marshmallow.UnmarshalFromJSONMap(dataMap, &wrapper)
+	if err != nil {
+		return err
+	}
+
+	contents := make([]MessageContent, 0, len(wrapper.Content))
+	if wrapper.Content != nil {
+		for i, rawContent := range wrapper.Content {
+			message, err := unmarshalOpenAIObject(rawContent)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal message contents at position %d: %w", i, err)
+			}
+			contents = append(contents, message)
+		}
+	}
+	*o = wrapper.Message
+	o.Content = contents
+	return nil
 }
 
 func (o Message) MarshalJSON() ([]byte, error) {
 	type Alias Message
 	return json.Marshal(struct {
-		Type string `json:"type"`
+		Type    string           `json:"type"`
+		Content []MessageContent `json:"content"`
 		Alias
-	}{Type: "message", Alias: Alias(o)})
+	}{Type: "message", Content: o.Content, Alias: Alias(o)})
 }
 
 type FunctionCall struct {
@@ -142,6 +223,8 @@ func (o CustomToolCall) MarshalJSON() ([]byte, error) {
 	}{Type: "custom_tool_call", Alias: Alias(o)})
 }
 
+type Output any
+
 // https://platform.openai.com/docs/api-reference/responses/object
 type ResponsesResponse struct {
 	ID        string `json:"id"`
@@ -161,8 +244,38 @@ type ResponsesResponse struct {
 	//   * Message
 	//   * FunctionCall
 	//   * CustomToolCall
-	Output             []OpenAIObjectWrapper `json:"output"`
-	PreviousResponseID string                `json:"previous_response_id,omitempty"`
+	Output             []Output `json:"-"`
+	PreviousResponseID string   `json:"previous_response_id,omitempty"`
+}
+
+func (r *ResponsesResponse) UnmarshalJSONFromMap(data interface{}) error {
+	dataMap, ok := data.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("expected map[string]interface{}, got %T", data)
+	}
+
+	wrapper := struct {
+		ResponsesResponse
+		Output []map[string]any `json:"output"`
+	}{}
+	if _, err := marshmallow.UnmarshalFromJSONMap(dataMap, &wrapper); err != nil {
+		return err
+	}
+	fmt.Printf("unmarshal: %#v\n", wrapper)
+
+	outputs := make([]Output, 0, len(wrapper.Output))
+	if wrapper.Output != nil {
+		for i, rawOutput := range wrapper.Output {
+			output, err := unmarshalOpenAIObject(rawOutput)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal output at position %d: %w", i, err)
+			}
+			outputs = append(outputs, output)
+		}
+	}
+	*r = wrapper.ResponsesResponse
+	r.Output = outputs
+	return nil
 }
 
 type InputText struct {
@@ -188,13 +301,6 @@ func (o InputImage) MarshalJSON() ([]byte, error) {
 		Type string `json:"type"`
 		Alias
 	}{Type: "input_image", Alias: Alias(o)})
-}
-
-type ResponsesRequest struct {
-	// Possible types:
-	//   * Message
-	Input []OpenAIObjectWrapper `json:"input"`
-	Model string                `json:"model"`
 }
 
 type OpenAIObjectWrapper struct {
@@ -244,8 +350,8 @@ func (o *OpenAIObjectWrapper) UnmarshalJSON(b []byte) error {
 		o.Obj, err = unmarshalAs(&SummaryText{}, b)
 	default:
 		o.Obj = &RawObject{
-			Type:  typeTag.Type,
-			Bytes: b,
+			Type: typeTag.Type,
+			Data: nil,
 		}
 	}
 	if err != nil {
@@ -267,23 +373,47 @@ func New(apiKey string) *ChatGpt {
 	}
 }
 
-func (c *ChatGpt) Responses(ctx context.Context, request *ResponsesRequest) (*ResponsesResponse, error) {
-	return doRequest[ResponsesResponse](c, ctx, "/responses", request)
+type ResponsesRequest struct {
+	Input []OpenAIObject
+	Model string
 }
 
-func doRequest[T any](c *ChatGpt, ctx context.Context, path string, payload any) (*T, error) {
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal payload: %v", err)
+func (c *ChatGpt) compileInputMessagePayload(obj OpenAIObject) (json.RawMessage, error) {
+	if o, ok := obj.(*InputText); ok {
+		return json.Marshal(o)
 	}
+	if o, ok := obj.(*InputImage); ok {
+		return json.Marshal(o)
+	}
+	if o, ok := obj.(*OutputText); ok {
+		return json.Marshal(o)
+	}
+	if o, ok := obj.(*RawObject); ok {
+		return json.Marshal(o)
+	}
+	return nil, fmt.Errorf("unsupported input message type `%T`", obj)
+}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.apiBase+path, bytes.NewBuffer(jsonPayload))
+func (c *ChatGpt) compileResponsesRequestPayload(r *ResponsesRequest) (json.RawMessage, error) {
+	return json.Marshal(r)
+}
+
+func (c *ChatGpt) Responses(ctx context.Context, request *ResponsesRequest) (*ResponsesResponse, error) {
+	payload, err := c.compileResponsesRequestPayload(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile request: %w", err)
+	}
+	return doRequest[ResponsesResponse](c, ctx, "/responses", payload)
+}
+
+func doRequest[T any](c *ChatGpt, ctx context.Context, path string, payload json.RawMessage) (*T, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", c.apiBase+path, bytes.NewBuffer(payload))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	slog.Info(string(jsonPayload))
+	slog.Info(string(payload))
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

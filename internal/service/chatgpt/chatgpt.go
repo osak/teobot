@@ -8,8 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-
-	"github.com/perimeterx/marshmallow"
 )
 
 type ChatGpt struct {
@@ -20,53 +18,7 @@ type ChatGpt struct {
 type OpenAIObject interface {
 }
 
-func unmarshalAsFromMap[T any](data map[string]any, obj *T) (*T, error) {
-	if _, err := marshmallow.UnmarshalFromJSONMap(data, obj); err != nil {
-		return nil, err
-	}
-	return obj, nil
-}
-
-func unmarshalOpenAIObject(data map[string]any) (res OpenAIObject, err error) {
-	rawTypeName, ok := data["type"]
-	if !ok {
-		return nil, fmt.Errorf("expected OpenAI typed struct but `type` is not found")
-	}
-	typeName, ok := rawTypeName.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected OpenAI typed struct but `type` is not string")
-	}
-
-	switch typeName {
-	case "custom_tool_call":
-		res, err = unmarshalAsFromMap(data, &CustomToolCall{})
-	case "function_call":
-		res, err = unmarshalAsFromMap(data, &FunctionCall{})
-	case "message":
-		res, err = unmarshalAsFromMap(data, &Message{})
-	case "output_text":
-		res, err = unmarshalAsFromMap(data, &OutputText{})
-	case "reasoning":
-		res, err = unmarshalAsFromMap(data, &Reasoning{})
-	case "reasoning_text":
-		res, err = unmarshalAsFromMap(data, &ReasoningText{})
-	case "refusal":
-		res, err = unmarshalAsFromMap(data, &Refusal{})
-	case "summary_text":
-		res, err = unmarshalAsFromMap(data, &SummaryText{})
-	default:
-		res = &RawObject{
-			Type: typeName,
-			Data: data,
-		}
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal OpenAI object of type %s: %w", typeName, err)
-	}
-	return res, nil
-}
-
-func unmarshalOpenAIObjectJSON(b []byte) (OpenAIObject, error) {
+func unmarshalOpenAIObject(b []byte) (OpenAIObject, error) {
 	var typeTag struct {
 		Type string `json:"type"`
 	}
@@ -96,7 +48,7 @@ func unmarshalOpenAIObjectJSON(b []byte) (OpenAIObject, error) {
 	default:
 		res = &RawObject{
 			Type: typeTag.Type,
-			Data: nil,
+			Data: b,
 		}
 	}
 	if err != nil {
@@ -107,10 +59,14 @@ func unmarshalOpenAIObjectJSON(b []byte) (OpenAIObject, error) {
 
 type RawObject struct {
 	Type string
-	Data map[string]any
+	Data json.RawMessage
 }
 
 func (r *RawObject) GetType() string { return r.Type }
+
+func (r *RawObject) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.Data)
+}
 
 type OutputText struct {
 	Text string `json:"text"`
@@ -163,7 +119,7 @@ func (o *Message) UnmarshalJSON(data []byte) error {
 	contents := make([]MessageContent, 0, len(wrapper.Content))
 	if wrapper.Content != nil {
 		for i, rawContent := range wrapper.Content {
-			message, err := unmarshalOpenAIObjectJSON(rawContent)
+			message, err := unmarshalOpenAIObject(rawContent)
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal message contents at position %d: %w", i, err)
 			}
@@ -295,7 +251,7 @@ func (r *ResponsesResponse) UnmarshalJSON(data []byte) error {
 	outputs := make([]Output, 0, len(wrapper.Output))
 	if wrapper.Output != nil {
 		for i, rawOutput := range wrapper.Output {
-			output, err := unmarshalOpenAIObjectJSON(rawOutput)
+			output, err := unmarshalOpenAIObject(rawOutput)
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal output at position %d: %w", i, err)
 			}

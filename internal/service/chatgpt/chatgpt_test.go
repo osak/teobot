@@ -39,14 +39,8 @@ func TestOpenAITypedObjectWrapper_UnmarshalJSON(t *testing.T) {
     }
   ]
 }`
-	var dataMap map[string]interface{}
-	err := json.Unmarshal([]byte(payload), &dataMap)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	var resp ResponsesResponse
-	if err := (&resp).UnmarshalJSONFromMap(dataMap); err != nil {
+	if err := json.Unmarshal([]byte(payload), &resp); err != nil {
 		t.Error(err)
 	}
 
@@ -56,7 +50,6 @@ func TestOpenAITypedObjectWrapper_UnmarshalJSON(t *testing.T) {
 	if resp.Status != "completed" {
 		t.Errorf("resp.Status != \"completed\", got: %s", resp.Status)
 	}
-	fmt.Printf("resp: %#v\n", resp)
 	output0, ok := resp.Output[0].(*Message)
 	if !ok {
 		t.Errorf("resp.Output[0].Obj is not of type Message, got: %T", resp.Output[0])
@@ -65,7 +58,6 @@ func TestOpenAITypedObjectWrapper_UnmarshalJSON(t *testing.T) {
 		t.Errorf("output0.ID != \"msg1\", got: %s", output0.ID)
 	}
 
-	fmt.Printf("%#v\n", output0)
 	content0, ok := output0.Content[0].(*OutputText)
 	if !ok {
 		t.Errorf("output0.Content[0] is not of type OutputText, got: %T", output0.Content[0])

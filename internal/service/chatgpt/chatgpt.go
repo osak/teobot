@@ -66,6 +66,45 @@ func unmarshalOpenAIObject(data map[string]any) (res OpenAIObject, err error) {
 	return res, nil
 }
 
+func unmarshalOpenAIObjectJSON(b []byte) (OpenAIObject, error) {
+	var typeTag struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(b, &typeTag); err != nil {
+		return nil, fmt.Errorf("expected OpenAI typed struct but `type` is not found : %w", err)
+	}
+
+	var res OpenAIObject
+	var err error
+	switch typeTag.Type {
+	case "custom_tool_call":
+		return unmarshalAs(&CustomToolCall{}, b)
+	case "function_call":
+		res, err = unmarshalAs(&FunctionCall{}, b)
+	case "message":
+		res, err = unmarshalAs(&Message{}, b)
+	case "output_text":
+		res, err = unmarshalAs(&OutputText{}, b)
+	case "reasoning":
+		res, err = unmarshalAs(&Reasoning{}, b)
+	case "reasoning_text":
+		res, err = unmarshalAs(&ReasoningText{}, b)
+	case "refusal":
+		res, err = unmarshalAs(&Refusal{}, b)
+	case "summary_text":
+		res, err = unmarshalAs(&SummaryText{}, b)
+	default:
+		res = &RawObject{
+			Type: typeTag.Type,
+			Data: nil,
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal OpenAI object of type %s: %w", typeTag.Type, err)
+	}
+	return res, nil
+}
+
 type RawObject struct {
 	Type string
 	Data map[string]any
@@ -110,33 +149,28 @@ type Message struct {
 	Status  string           `json:"status,omitempty"`
 }
 
-func (o *Message) UnmarshalJSONFromMap(data any) error {
-	dataMap, ok := data.(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("expected map[string]interface{}, got %T", data)
-	}
-
+func (o *Message) UnmarshalJSON(data []byte) error {
+	type Alias Message
 	wrapper := struct {
-		Message
-		Content []map[string]any `json:"content"`
+		Alias
+		Content []json.RawMessage `json:"content"`
 	}{}
 
-	_, err := marshmallow.UnmarshalFromJSONMap(dataMap, &wrapper)
-	if err != nil {
+	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return err
 	}
 
 	contents := make([]MessageContent, 0, len(wrapper.Content))
 	if wrapper.Content != nil {
 		for i, rawContent := range wrapper.Content {
-			message, err := unmarshalOpenAIObject(rawContent)
+			message, err := unmarshalOpenAIObjectJSON(rawContent)
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal message contents at position %d: %w", i, err)
 			}
 			contents = append(contents, message)
 		}
 	}
-	*o = wrapper.Message
+	*o = Message(wrapper.Alias)
 	o.Content = contents
 	return nil
 }
@@ -248,32 +282,27 @@ type ResponsesResponse struct {
 	PreviousResponseID string   `json:"previous_response_id,omitempty"`
 }
 
-func (r *ResponsesResponse) UnmarshalJSONFromMap(data interface{}) error {
-	dataMap, ok := data.(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("expected map[string]interface{}, got %T", data)
-	}
-
+func (r *ResponsesResponse) UnmarshalJSON(data []byte) error {
+	type Alias ResponsesResponse
 	wrapper := struct {
-		ResponsesResponse
-		Output []map[string]any `json:"output"`
+		Alias
+		Output []json.RawMessage `json:"output"`
 	}{}
-	if _, err := marshmallow.UnmarshalFromJSONMap(dataMap, &wrapper); err != nil {
+	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return err
 	}
-	fmt.Printf("unmarshal: %#v\n", wrapper)
 
 	outputs := make([]Output, 0, len(wrapper.Output))
 	if wrapper.Output != nil {
 		for i, rawOutput := range wrapper.Output {
-			output, err := unmarshalOpenAIObject(rawOutput)
+			output, err := unmarshalOpenAIObjectJSON(rawOutput)
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal output at position %d: %w", i, err)
 			}
 			outputs = append(outputs, output)
 		}
 	}
-	*r = wrapper.ResponsesResponse
+	*r = ResponsesResponse(wrapper.Alias)
 	r.Output = outputs
 	return nil
 }

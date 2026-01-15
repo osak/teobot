@@ -1,8 +1,13 @@
 package teobot
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/osak/teobot/internal/service/chatgpt"
 )
 
 type TalkResponse struct {
@@ -78,6 +83,7 @@ const basePrompt = `
     - このクラスの質問に対しては、不正確な回答はしないでください。Web検索や実際の文献の調査が必要だと判断した場合はまず最初に「正確な知識がないので分からない」旨を答え、それから回答を続けてください
 `
 
+// buildPastThreadsWithUser builds a collection of messages in recent conversations with the user.
 func (t *Teobot) buildPastThreadsWithUser(ctx Context, userName string) ([][]serializableMessage, error) {
 	historyThreads, err := t.loadConversationHistory(ctx, userName)
 	if err != nil {
@@ -95,6 +101,7 @@ func (t *Teobot) buildPastThreadsWithUser(ctx Context, userName string) ([][]ser
 	return threads, nil
 }
 
+// buildRecentMessages build a collection of messages in recent conversations.
 func (t *Teobot) buildRecentMessages(ctx Context) ([]serializableMessage, error) {
 	rawMessages, err := t.loadRecentMessages(ctx)
 	if err != nil {
@@ -107,6 +114,7 @@ func (t *Teobot) buildRecentMessages(ctx Context) ([]serializableMessage, error)
 	return messages, nil
 }
 
+// buildExtraContext builds a context object to feed to the bot.
 func (t *Teobot) buildExtraContext(ctx Context, userName string) (serializableChatContext, error) {
 	pastThreads, err := t.buildPastThreadsWithUser(ctx, userName)
 	if err != nil {
@@ -122,6 +130,90 @@ func (t *Teobot) buildExtraContext(ctx Context, userName string) (serializableCh
 	}, nil
 }
 
-func (t *Teobot) Talk(ctx Context, message Message) (TalkResponse, error) {
+// buildSystemMessages builds ChatGPT system messages to instruct the bot about their role and give the context.
+func (t *Teobot) buildSystemMessages(ctx Context, userName string) ([]chatgpt.Message, error) {
+	extraContext, err := t.buildExtraContext(ctx, userName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build extra context: %w", err)
+	}
+	extraContextJson, err := json.Marshal(extraContext)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal extra context: %w", err)
+	}
+	systemPromptMessage := chatgpt.Message{
+		Role: "system",
+		Content: []chatgpt.MessageContent{
+			chatgpt.InputText{
+				Text: basePrompt,
+			},
+		},
+	}
+	extraContextMessage := chatgpt.Message{
+		Role: "system",
+		Content: []chatgpt.MessageContent{
+			chatgpt.InputText{
+				Text: string(extraContextJson),
+			},
+		},
+	}
+	return []chatgpt.Message{systemPromptMessage, extraContextMessage}, nil
+}
 
+// Talk generates a bot response from the given context and the message to reply to.
+func (t *Teobot) Talk(ctx Context, message *Message) (*TalkResponse, error) {
+	systemMessages, err := t.buildSystemMessages(ctx, message.User.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build system messages: %w", err)
+	}
+
+	inputMessages := make([]chatgpt.Input, len(systemMessages)+1)
+	for _, systemMessage := range systemMessages {
+		inputMessages = append(inputMessages, systemMessage)
+	}
+	inputMessages = append(inputMessages, chatgpt.Message{
+		Role: "user",
+		Content: []chatgpt.MessageContent{
+			chatgpt.InputText{
+				Text: message.Text,
+			},
+		},
+	})
+
+	// Call ChatGPT to generate the response
+	req := chatgpt.ResponsesRequest{
+		Input: inputMessages,
+		Model: "gpt-5-mini",
+	}
+	res, err := t.chatGpt.Responses(ctx.RunCtx, &req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call ChatGPT: %w", err)
+	}
+	if res.Error != nil {
+		return nil, fmt.Errorf("ChatGPT returned an error: %s", res.Error)
+	}
+
+	// Parse response
+	resText := ""
+	for _, output := range res.Output {
+		if m, ok := output.(chatgpt.Message); ok {
+			for _, content := range m.Content {
+				if t, ok := content.(chatgpt.OutputText); ok {
+					resText += t.Text + "\n"
+				} else {
+					slog.Info(fmt.Sprintf("Unprocessed response content: %#v", content))
+				}
+			}
+		} else {
+			slog.Info(fmt.Sprintf("Unprocessed response output: %#v", output))
+		}
+	}
+
+	resMsg := Message{
+		ID:           uuid.New(),
+		Text:         resText,
+		PrivacyLevel: message.PrivacyLevel,
+		User:         t.user,
+		Timestamp:    time.Now(),
+	}
+	return &TalkResponse{Message: resMsg}, nil
 }

@@ -317,9 +317,10 @@ func New(apiKey string) *ChatGpt {
 	}
 }
 
+type Input any
 type ResponsesRequest struct {
-	Input []OpenAIObject `json:"input"`
-	Model string         `json:"model"`
+	Input []Input `json:"input"`
+	Model string  `json:"model"`
 }
 
 func (c *ChatGpt) compileInputMessagePayload(obj OpenAIObject) (json.RawMessage, error) {
@@ -357,7 +358,7 @@ func doRequest[T any](c *ChatGpt, ctx context.Context, path string, payload json
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	slog.Info(string(payload))
+	slog.Debug(fmt.Sprintf("Payload: %s", string(payload)))
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

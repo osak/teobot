@@ -13,3 +13,15 @@ type Teobot struct {
 	// user is an DB entity that represents the bot itself.
 	user *User
 }
+
+func New(chatGpt *chatgpt.ChatGpt, queries *db.Queries, pool *pgxpool.Pool) *Teobot {
+	user := &User{
+		Name: "teobot",
+	}
+	return &Teobot{
+		chatGpt: chatGpt,
+		queries: queries,
+		pool:    pool,
+		user:    user,
+	}
+}

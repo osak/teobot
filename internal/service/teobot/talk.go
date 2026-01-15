@@ -166,7 +166,7 @@ func (t *Teobot) Talk(ctx Context, message *Message) (*TalkResponse, error) {
 		return nil, fmt.Errorf("failed to build system messages: %w", err)
 	}
 
-	inputMessages := make([]chatgpt.Input, len(systemMessages)+1)
+	inputMessages := make([]chatgpt.Input, 0, len(systemMessages)+1)
 	for _, systemMessage := range systemMessages {
 		inputMessages = append(inputMessages, systemMessage)
 	}
@@ -195,9 +195,9 @@ func (t *Teobot) Talk(ctx Context, message *Message) (*TalkResponse, error) {
 	// Parse response
 	resText := ""
 	for _, output := range res.Output {
-		if m, ok := output.(chatgpt.Message); ok {
+		if m, ok := output.(*chatgpt.Message); ok {
 			for _, content := range m.Content {
-				if t, ok := content.(chatgpt.OutputText); ok {
+				if t, ok := content.(*chatgpt.OutputText); ok {
 					resText += t.Text + "\n"
 				} else {
 					slog.Info(fmt.Sprintf("Unprocessed response content: %#v", content))

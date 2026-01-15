@@ -14,7 +14,7 @@ func main() {
 	chatGpt := chatgpt.New(apiKey)
 	ctx := context.Background()
 	req := chatgpt.ResponsesRequest{
-		Input: []chatgpt.OpenAIObject{
+		Input: []chatgpt.Input{
 			&chatgpt.Message{
 				Role: "user",
 				Content: []chatgpt.MessageContent{

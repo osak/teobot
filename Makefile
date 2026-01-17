@@ -9,7 +9,7 @@ build_chat_history:
 	go build -o bin/build_chat_history cmd/build_chat_history/main.go
 
 migration_up:
-	docker run -v C:/Users/micro/IdeaProjects/teobot/db/migrations:/migrations --network teobot_default migrate/migrate -path /migrations -database "postgres://teobot:teo@db/teobot?sslmode=disable" up
+	docker run -v "$(shell pwd)/db/migrations:/migrations" --network teobot_default migrate/migrate -path /migrations -database "postgres://teobot:teo@db/teobot?sslmode=disable" up
 
 migration_down:
 	migrate -path db/migrations -database "postgres://teobot:teo@127.0.0.1/teobot?sslmode=disable" down 1

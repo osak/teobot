@@ -318,9 +318,13 @@ func New(apiKey string) *ChatGpt {
 }
 
 type Input any
+type ReasoningEffort struct {
+	Effort string `json:"effort"`
+}
 type ResponsesRequest struct {
-	Input []Input `json:"input"`
-	Model string  `json:"model"`
+	Input     []Input         `json:"input"`
+	Model     string          `json:"model"`
+	Reasoning ReasoningEffort `json:"reasoning"`
 }
 
 func (c *ChatGpt) compileInputMessagePayload(obj OpenAIObject) (json.RawMessage, error) {

@@ -1,0 +1,219 @@
+package mastodon
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/osak/teobot/internal/metrics"
+	"github.com/osak/teobot/internal/service/teobot"
+	utext "github.com/osak/teobot/internal/text"
+	"github.com/osak/teobot/internal/textsplit"
+)
+
+type TeobotBinding struct {
+	teobot             *teobot.Teobot
+	mastodon           Client
+	myAccountID        string
+	lastNotificationID string
+}
+
+func NewTeobotBinding(t *teobot.Teobot, mastodon Client) (*TeobotBinding, error) {
+	acct, err := mastodon.VerifyCredentials()
+	if err != nil {
+		return nil, err
+	}
+	tb := TeobotBinding{
+		teobot:             t,
+		mastodon:           mastodon,
+		myAccountID:        acct.ID,
+		lastNotificationID: "",
+	}
+	return &tb, nil
+}
+
+func getPrivacyLevel(status *Status) teobot.PrivacyLevel {
+	if status.Visibility == "direct" || status.Visibility == "private" {
+		return teobot.PrivacyLevelPrivate
+	}
+	return teobot.PrivacyLevelPublic
+}
+
+func (t *TeobotBinding) convertToMessage(status *Status) (*teobot.Message, error) {
+	timestamp, err := time.Parse(time.RFC3339, status.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse status.CreatedAt `%s`: %w", status.CreatedAt, err)
+	}
+	return &teobot.Message{
+		Text:         NormalizeStatusContent(status),
+		PrivacyLevel: getPrivacyLevel(status),
+		User: &teobot.User{
+			Name: status.Account.Acct,
+		},
+		Timestamp: timestamp,
+		RawMeta: map[teobot.ChannelType]any{
+			teobot.ChannelTypeMastodon: map[string]string{
+				"status_id": status.ID,
+			},
+		},
+	}, nil
+}
+
+// ReconcileThread reconciles the Mastodon reply tree for a given status ID.
+// The thread is built from the reply tree and saved to the database.
+// The resulting thread does NOT include the message specified by statusId.
+func (t *TeobotBinding) ReconcileThread(ctx context.Context, statusId string) (uuid.UUID, error) {
+	slog.Info("ReconcileThread", slog.String("statusId", statusId))
+
+	// Get the Mastodon reply tree
+	tree, err := t.mastodon.GetReplyTree(statusId)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to get reply tree for statusId=%s: %w", statusId, err)
+	}
+
+	// Build messages history from the thread
+	var messages []*teobot.Message
+	for _, status := range tree.Ancestors {
+		message, err := t.convertToMessage(status)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to convert status %s to Message: %v", status.ID, err))
+			continue
+		}
+		messages = append(messages, message)
+	}
+
+	thread := &teobot.Thread{
+		Messages: messages,
+	}
+	threadID, err := t.teobot.ImportThread(ctx, thread)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return threadID, nil
+}
+
+func (t *TeobotBinding) postReply(ctx context.Context, response *teobot.TalkResponse, replyTo *Status) error {
+	// Sanitize response message to avoid accidentally mention random people
+	sanitized := utext.ReplaceAll(utext.New(response.Message.Text), "@", "@ ")
+
+	// Split utext into chunks to fit to character limit of Mastodon
+	texts := []*utext.Text{sanitized}
+	if sanitized.Len() > 450 {
+		ts := textsplit.NewTextSplitService(nil)
+		newTexts, err := ts.SplitText(sanitized, 450)
+		if err != nil {
+			return fmt.Errorf("split text: %w", err)
+		}
+		texts = newTexts
+	}
+
+	// Post messages in the reply chain
+	inReplyToId := replyTo.ID
+	for _, text := range texts {
+		body := fmt.Sprintf("@%s %s", replyTo.Account.Acct, text)
+		newStatus, err := t.mastodon.PostStatus(body, &PostStatusOpt{
+			ReplyToID:  inReplyToId,
+			Visibility: replyTo.Visibility,
+		})
+		if err != nil {
+			wrapped := fmt.Errorf("post status: %w", err)
+			metrics.NoticeError(ctx, wrapped)
+			return wrapped
+		}
+
+		inReplyToId = newStatus.ID
+	}
+
+	return nil
+}
+
+func (t *TeobotBinding) GenerateResponse(ctx context.Context, status *Status) (*teobot.TalkResponse, error) {
+	// Find the teobot Message to reply to
+	replyToMessage, err := t.teobot.FindMessageByMastodonStatusID(ctx, status.InReplyToID)
+	if err != nil {
+		return nil, err
+	}
+	if replyToMessage == nil {
+		// The message is not a part of any known conversation threads - needs reconciliation before proceed.
+		_, err := t.ReconcileThread(ctx, status.ID)
+		if err != nil {
+			return nil, fmt.Errorf("reconcile %s: %w", status.InReplyToID, err)
+		}
+
+		// Populate replyToMessage again. This time the message must have been stored in the DB.
+		replyToMessage, err = t.teobot.FindMessageByMastodonStatusID(ctx, status.InReplyToID)
+		if err != nil {
+			return nil, err
+		}
+		if replyToMessage == nil {
+			return nil, fmt.Errorf("post reconciliation")
+		}
+	}
+
+	// Convert the posted status to teobot Message
+	message, err := t.convertToMessage(status)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate reply
+	res, err := t.teobot.Talk(ctx, replyToMessage.ID, message)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (t *TeobotBinding) ReplyAndPost(ctx context.Context, status *Status) error {
+	res, err := t.GenerateResponse(ctx, status)
+	if err != nil {
+		return err
+	}
+
+	// Post the reply message to Mastodon
+	if err := t.postReply(ctx, res, status); err != nil {
+		return err
+	}
+
+	// TODO: Record post result
+	return nil
+}
+
+func (t *TeobotBinding) SaveState() error {
+	// TODO: Save state
+	return nil
+}
+
+// Run goes through the newly arrived replies and respond to them
+func (t *TeobotBinding) Run(ctx context.Context) error {
+	// Get the latest replies
+	replies, err := t.mastodon.GetAllNotifications(&GetAllNotificationsOpt{
+		SinceID: t.lastNotificationID,
+		Types:   []string{"mention"},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get notifications: %w", err)
+	}
+
+	// Process each reply
+	for _, reply := range replies {
+		slog.Info("Processing reply", slog.String("reply", reply.ID), slog.String("status", reply.Status.Content))
+		err := t.ReplyAndPost(ctx, reply.Status)
+		if err != nil {
+			slog.Error("Failed to reply to the status", "error", err)
+			continue
+		}
+
+		// Update the last notification ID
+		if t.lastNotificationID < reply.ID {
+			t.lastNotificationID = reply.ID
+		}
+		if err := t.SaveState(); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+	}
+
+	return nil
+}

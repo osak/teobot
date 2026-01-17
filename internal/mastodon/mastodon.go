@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// Client handles communication with the Mastodon API
-type Client struct {
+// ClientImpl handles communication with the Mastodon API
+type ClientImpl struct {
 	baseURL      string
 	clientKey    string
 	clientSecret string
@@ -25,10 +25,10 @@ type Client struct {
 }
 
 // NewClient creates a new Mastodon API client
-func NewClient(baseURL, clientKey, clientSecret, accessToken string) *Client {
+func NewClient(baseURL, clientKey, clientSecret, accessToken string) Client {
 	logger := slog.With("component", "mastodon")
 
-	return &Client{
+	return &ClientImpl{
 		baseURL:      baseURL,
 		clientKey:    clientKey,
 		clientSecret: clientSecret,
@@ -106,7 +106,7 @@ type GetAllNotificationsOpt struct {
 }
 
 // VerifyCredentials fetches the current user's account information
-func (c *Client) VerifyCredentials() (*Account, error) {
+func (c *ClientImpl) VerifyCredentials() (*Account, error) {
 	req, err := http.NewRequest("GET", c.baseURL+"/api/v1/accounts/verify_credentials", nil)
 	if err != nil {
 		return nil, err
@@ -134,7 +134,7 @@ func (c *Client) VerifyCredentials() (*Account, error) {
 }
 
 // GetStatus fetches a status by ID
-func (c *Client) GetStatus(id string) (*Status, error) {
+func (c *ClientImpl) GetStatus(id string) (*Status, error) {
 	req, err := http.NewRequest("GET", c.baseURL+"/api/v1/statuses/"+id, nil)
 	if err != nil {
 		return nil, err
@@ -162,7 +162,7 @@ func (c *Client) GetStatus(id string) (*Status, error) {
 }
 
 // GetReplyTree fetches the conversation thread for a status
-func (c *Client) GetReplyTree(id string) (*Context, error) {
+func (c *ClientImpl) GetReplyTree(id string) (*Context, error) {
 	req, err := http.NewRequest("GET", c.baseURL+"/api/v1/statuses/"+id+"/context", nil)
 	if err != nil {
 		return nil, err
@@ -190,7 +190,7 @@ func (c *Client) GetReplyTree(id string) (*Context, error) {
 }
 
 // PostStatus creates a new status
-func (c *Client) PostStatus(content string, opt *PostStatusOpt) (*Status, error) {
+func (c *ClientImpl) PostStatus(content string, opt *PostStatusOpt) (*Status, error) {
 	data := map[string]interface{}{
 		"status": content,
 	}
@@ -250,7 +250,7 @@ func (c *Client) PostStatus(content string, opt *PostStatusOpt) (*Status, error)
 }
 
 // GetAllNotifications fetches notifications with optional filters
-func (c *Client) GetAllNotifications(opt *GetAllNotificationsOpt) ([]*Notification, error) {
+func (c *ClientImpl) GetAllNotifications(opt *GetAllNotificationsOpt) ([]*Notification, error) {
 	// Build query parameters
 	params := url.Values{}
 
@@ -303,7 +303,7 @@ func (c *Client) GetAllNotifications(opt *GetAllNotificationsOpt) ([]*Notificati
 }
 
 // UploadImage uploads an image to the Mastodon media API
-func (c *Client) UploadImage(imageData []byte) (*MediaAttachment, error) {
+func (c *ClientImpl) UploadImage(imageData []byte) (*MediaAttachment, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -366,7 +366,7 @@ func (c *Client) UploadImage(imageData []byte) (*MediaAttachment, error) {
 }
 
 // GetImage gets information about an uploaded media attachment
-func (c *Client) GetImage(id string) (*MediaAttachment, error) {
+func (c *ClientImpl) GetImage(id string) (*MediaAttachment, error) {
 	req, err := http.NewRequest("GET", c.baseURL+"/api/v1/media/"+id, nil)
 	if err != nil {
 		return nil, err

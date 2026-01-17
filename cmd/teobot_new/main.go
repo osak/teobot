@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/osak/teobot/internal/config"
 	"github.com/osak/teobot/internal/db"
+	"github.com/osak/teobot/internal/mastodon"
 	"github.com/osak/teobot/internal/service/chatgpt"
 	"github.com/osak/teobot/internal/service/teobot"
 	pgxUUID "github.com/vgarvardt/pgx-google-uuid/v5"
@@ -33,16 +35,18 @@ func run() error {
 	queries := db.New(pool)
 
 	t := teobot.New(chatGpt, queries, pool)
-	ctx := teobot.Context{
-		RunCtx: context.Background(),
+	m := mastodon.NewClient(env.MastodonBaseURL, env.MastodonClientKey, env.MastodonClientSecret, env.MastodonAccessToken)
+	tb, err := mastodon.NewTeobotBinding(t, m)
+	if err != nil {
+		return err
 	}
-	message := teobot.Message{
-		Text: "こんにちは",
-		User: &teobot.User{
-			Name: "osa_k",
-		},
+
+	status, err := m.GetStatus(os.Args[1])
+	if err != nil {
+		return err
 	}
-	res, err := t.Talk(ctx, &message)
+
+	res, err := tb.GenerateResponse(context.Background(), status)
 	if err != nil {
 		return fmt.Errorf("failed to start talk with teobot: %w", err)
 	}

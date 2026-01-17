@@ -1,6 +1,7 @@
 package teobot
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -84,7 +85,7 @@ const basePrompt = `
 `
 
 // buildPastThreadsWithUser builds a collection of messages in recent conversations with the user.
-func (t *Teobot) buildPastThreadsWithUser(ctx Context, userName string) ([][]serializableMessage, error) {
+func (t *Teobot) buildPastThreadsWithUser(ctx context.Context, userName string) ([][]serializableMessage, error) {
 	historyThreads, err := t.loadConversationHistory(ctx, userName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load conversation history: %w", err)
@@ -102,7 +103,7 @@ func (t *Teobot) buildPastThreadsWithUser(ctx Context, userName string) ([][]ser
 }
 
 // buildRecentMessages build a collection of messages in recent conversations.
-func (t *Teobot) buildRecentMessages(ctx Context) ([]serializableMessage, error) {
+func (t *Teobot) buildRecentMessages(ctx context.Context) ([]serializableMessage, error) {
 	rawMessages, err := t.loadRecentMessages(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load recent messages: %w", err)
@@ -115,7 +116,7 @@ func (t *Teobot) buildRecentMessages(ctx Context) ([]serializableMessage, error)
 }
 
 // buildExtraContext builds a context object to feed to the bot.
-func (t *Teobot) buildExtraContext(ctx Context, userName string) (serializableChatContext, error) {
+func (t *Teobot) buildExtraContext(ctx context.Context, userName string) (serializableChatContext, error) {
 	pastThreads, err := t.buildPastThreadsWithUser(ctx, userName)
 	if err != nil {
 		return serializableChatContext{}, fmt.Errorf("failed to load conversation history with user %s: %w", userName, err)
@@ -131,7 +132,7 @@ func (t *Teobot) buildExtraContext(ctx Context, userName string) (serializableCh
 }
 
 // buildSystemMessages builds ChatGPT system messages to instruct the bot about their role and give the context.
-func (t *Teobot) buildSystemMessages(ctx Context, userName string) ([]chatgpt.Message, error) {
+func (t *Teobot) buildSystemMessages(ctx context.Context, userName string) ([]chatgpt.Message, error) {
 	extraContext, err := t.buildExtraContext(ctx, userName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build extra context: %w", err)
@@ -159,16 +160,60 @@ func (t *Teobot) buildSystemMessages(ctx Context, userName string) ([]chatgpt.Me
 	return []chatgpt.Message{systemPromptMessage, extraContextMessage}, nil
 }
 
+func (t *Teobot) buildCurrentThreadMessages(ctx context.Context, messageID uuid.UUID) ([]chatgpt.Message, error) {
+	rels, err := t.queries.GetChatgptThreadRels(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+	if len(rels) == 0 {
+		return nil, fmt.Errorf("message %s does not belong to any threads", messageID)
+	}
+	threadID := rels[0].ThreadID
+	rows, err := t.queries.GetFullChatgptMessagesByThreadId(ctx, threadID)
+
+	messages := make([]chatgpt.Message, len(rows))
+	for i, row := range rows {
+		message, err := parseChatGptMessage(row)
+		if err != nil {
+			return nil, fmt.Errorf("parse message %s: %w", row.ID, err)
+		}
+		if message.User.Name == "teobot" {
+			messages[i] = chatgpt.Message{
+				Role: "assistant",
+				Content: []chatgpt.MessageContent{
+					chatgpt.OutputText{Text: message.Text},
+				},
+			}
+		} else {
+			messages[i] = chatgpt.Message{
+				Role: "user",
+				Content: []chatgpt.MessageContent{
+					chatgpt.InputText{Text: message.Text},
+				},
+			}
+		}
+	}
+
+	return messages, nil
+}
+
 // Talk generates a bot response from the given context and the message to reply to.
-func (t *Teobot) Talk(ctx Context, message *Message) (*TalkResponse, error) {
+func (t *Teobot) Talk(ctx context.Context, replyToMessageID uuid.UUID, message *Message) (*TalkResponse, error) {
 	systemMessages, err := t.buildSystemMessages(ctx, message.User.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build system messages: %w", err)
 	}
+	threadMessages, err := t.buildCurrentThreadMessages(ctx, replyToMessageID)
+	if err != nil {
+		return nil, fmt.Errorf("build current thread: %w", err)
+	}
 
-	inputMessages := make([]chatgpt.Input, 0, len(systemMessages)+1)
+	inputMessages := make([]chatgpt.Input, 0, len(systemMessages)+len(threadMessages)+1)
 	for _, systemMessage := range systemMessages {
 		inputMessages = append(inputMessages, systemMessage)
+	}
+	for _, threadMessages := range threadMessages {
+		inputMessages = append(inputMessages, threadMessages)
 	}
 	inputMessages = append(inputMessages, chatgpt.Message{
 		Role: "user",
@@ -182,9 +227,12 @@ func (t *Teobot) Talk(ctx Context, message *Message) (*TalkResponse, error) {
 	// Call ChatGPT to generate the response
 	req := chatgpt.ResponsesRequest{
 		Input: inputMessages,
-		Model: "gpt-5-mini",
+		Model: "gpt-5",
+		Reasoning: chatgpt.ReasoningEffort{
+			Effort: "minimal",
+		},
 	}
-	res, err := t.chatGpt.Responses(ctx.RunCtx, &req)
+	res, err := t.chatGpt.Responses(ctx, &req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call ChatGPT: %w", err)
 	}

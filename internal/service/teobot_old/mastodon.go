@@ -1,4 +1,4 @@
-package teobot
+package teobot_old
 
 import (
 	"bytes"

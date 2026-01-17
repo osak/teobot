@@ -14,8 +14,8 @@ const (
 	ChannelTypeMastodon ChannelType = "mastodon"
 )
 const (
-	PrivacyLevelPublic PrivacyLevel = "public"
-	PrivacyLevelDirect              = "direct"
+	PrivacyLevelPublic  PrivacyLevel = "public"
+	PrivacyLevelPrivate PrivacyLevel = "private"
 )
 
 type Thread struct {

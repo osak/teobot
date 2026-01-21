@@ -12,4 +12,4 @@ migration_up:
 	docker run -v "$(shell pwd)/db/migrations:/migrations" --network teobot_default migrate/migrate -path /migrations -database "postgres://teobot:teo@db/teobot?sslmode=disable" up
 
 migration_down:
-	migrate -path db/migrations -database "postgres://teobot:teo@127.0.0.1/teobot?sslmode=disable" down 1
+	docker run -v "$(shell pwd)/db/migrations:/migrations" --network teobot_default migrate/migrate -path /migrations -database "postgres://teobot:teo@db/teobot?sslmode=disable" down 1

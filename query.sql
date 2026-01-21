@@ -76,3 +76,17 @@ WHERE chatgpt_message_id IN (
     ORDER BY timestamp DESC
     LIMIT $2
 );
+
+-- name: CreateUser :exec
+INSERT INTO users (id, name)
+VALUES($1, $2);
+
+-- name: CreateMastodonUserMapping :exec
+INSERT INTO mastodon_user_mappings (mastodon_account_id, user_id)
+VALUES($1, $2);
+
+-- name: GetUserByMastodonAccountId :one
+SELECT *
+FROM users
+INNER JOIN mastodon_user_mappings ON users.id = mastodon_user_mappings.user_id
+WHERE mastodon_user_mappings.mastodon_account_id = $1;

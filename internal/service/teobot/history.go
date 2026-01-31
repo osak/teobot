@@ -15,6 +15,10 @@ import (
 	"github.com/osak/teobot/internal/db"
 )
 
+var (
+	ErrNoThread = errors.New("no ongoing thread")
+)
+
 type dbMessageBlob struct {
 	Name    string `json:"name"`
 	Role    string `json:"role"`
@@ -251,4 +255,27 @@ func (t *Teobot) FindMessageByMastodonStatusID(ctx context.Context, statusID str
 		return nil, err
 	}
 	return &message, nil
+}
+
+// FindOngoingThreadIDByMessageID finds the id of ongoing thread that has ended with the given message.
+// If there is no such thread, returns ErrNoThread.
+func (t *Teobot) FindOngoingThreadIDByMessageID(ctx context.Context, messageID uuid.UUID) (uuid.UUID, error) {
+	threadRels, err := t.queries.GetChatgptThreadRels(ctx, messageID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("get thread rels: %w", err)
+	}
+
+	// Find a thread ending with the given message
+	for _, threadRel := range threadRels {
+		threadID := threadRel.ThreadID
+		messages, err := t.queries.GetFullChatgptMessagesByThreadId(ctx, threadID)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("get thread messages (id=%s): %w", threadID, err)
+		}
+		if messages[len(messages)-1].ID == messageID {
+			return threadID, nil
+		}
+	}
+
+	return uuid.Nil, ErrNoThread
 }

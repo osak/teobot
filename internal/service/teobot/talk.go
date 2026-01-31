@@ -3,6 +3,7 @@ package teobot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -160,16 +161,11 @@ func (t *Teobot) buildSystemMessages(ctx context.Context, userName string) ([]ch
 	return []chatgpt.Message{systemPromptMessage, extraContextMessage}, nil
 }
 
-func (t *Teobot) buildCurrentThreadMessages(ctx context.Context, messageID uuid.UUID) ([]chatgpt.Message, error) {
-	rels, err := t.queries.GetChatgptThreadRels(ctx, messageID)
+func (t *Teobot) buildCurrentThreadMessages(ctx context.Context, threadID uuid.UUID) ([]chatgpt.Message, error) {
+	rows, err := t.queries.GetFullChatgptMessagesByThreadId(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
-	if len(rels) == 0 {
-		return nil, fmt.Errorf("message %s does not belong to any threads", messageID)
-	}
-	threadID := rels[0].ThreadID
-	rows, err := t.queries.GetFullChatgptMessagesByThreadId(ctx, threadID)
 
 	messages := make([]chatgpt.Message, len(rows))
 	for i, row := range rows {
@@ -199,11 +195,32 @@ func (t *Teobot) buildCurrentThreadMessages(ctx context.Context, messageID uuid.
 
 // Talk generates a bot response from the given context and the message to reply to.
 func (t *Teobot) Talk(ctx context.Context, replyToMessageID uuid.UUID, message *Message) (*TalkResponse, error) {
+	// Identify the current thread
+	var threadID uuid.UUID
+	if replyToMessageID == uuid.Nil {
+		// The message is very beginning of a thread - create a new one.
+		thread, err := t.queries.CreateChatgptThread(ctx, uuid.Must(uuid.NewV7()))
+		if err != nil {
+			return nil, fmt.Errorf("create a new thread: %w", err)
+		}
+		threadID = thread.ID
+	} else {
+		// The message is replying to an existing message. Identify which thread the message belongs to.
+		var err error
+		threadID, err = t.FindOngoingThreadIDByMessageID(ctx, replyToMessageID)
+		if errors.Is(err, ErrNoThread) {
+			threadID, err = t.ForkThread(ctx, replyToMessageID)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("find ongoing thread (messageID=%s): %w", replyToMessageID, err)
+		}
+	}
+
 	systemMessages, err := t.buildSystemMessages(ctx, message.User.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build system messages: %w", err)
 	}
-	threadMessages, err := t.buildCurrentThreadMessages(ctx, replyToMessageID)
+	threadMessages, err := t.buildCurrentThreadMessages(ctx, threadID)
 	if err != nil {
 		return nil, fmt.Errorf("build current thread: %w", err)
 	}

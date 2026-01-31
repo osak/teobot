@@ -2,8 +2,11 @@ package mastodon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +21,11 @@ type TeobotBinding struct {
 	mastodon           Client
 	myAccountID        string
 	lastNotificationID string
+	dataStoragePath    string
+}
+
+type state struct {
+	LastNotificationID string `json:"lastNotificationId,omitempty"`
 }
 
 func NewTeobotBinding(t *teobot.Teobot, mastodon Client) (*TeobotBinding, error) {
@@ -32,6 +40,30 @@ func NewTeobotBinding(t *teobot.Teobot, mastodon Client) (*TeobotBinding, error)
 		lastNotificationID: "",
 	}
 	return &tb, nil
+}
+
+func (t *TeobotBinding) SaveState() error {
+	state := &state{
+		LastNotificationID: t.lastNotificationID,
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("marshal state: %w", err)
+	}
+	return os.WriteFile(path.Join(t.dataStoragePath, "state.json"), data, 0644)
+}
+
+func (t *TeobotBinding) LoadState() error {
+	data, err := os.ReadFile(path.Join(t.dataStoragePath, "state.json"))
+	if err != nil {
+		return fmt.Errorf("read state file: %w", err)
+	}
+	var state state
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("unmarshal state: %w", err)
+	}
+	t.lastNotificationID = state.LastNotificationID
+	return nil
 }
 
 func getPrivacyLevel(status *Status) teobot.PrivacyLevel {
@@ -130,25 +162,31 @@ func (t *TeobotBinding) postReply(ctx context.Context, response *teobot.TalkResp
 }
 
 func (t *TeobotBinding) GenerateResponse(ctx context.Context, status *Status) (*teobot.TalkResponse, error) {
-	// Find the teobot Message to reply to
-	replyToMessage, err := t.teobot.FindMessageByMastodonStatusID(ctx, status.InReplyToID)
-	if err != nil {
-		return nil, err
-	}
-	if replyToMessage == nil {
-		// The message is not a part of any known conversation threads - needs reconciliation before proceed.
-		_, err := t.ReconcileThread(ctx, status.ID)
-		if err != nil {
-			return nil, fmt.Errorf("reconcile %s: %w", status.InReplyToID, err)
-		}
-
-		// Populate replyToMessage again. This time the message must have been stored in the DB.
-		replyToMessage, err = t.teobot.FindMessageByMastodonStatusID(ctx, status.InReplyToID)
+	// If `status` is a reply to any existing Mastodon thread, we use that fact for reconstructing the conversaion thread
+	// for the bot.
+	// If the status is very beginning of a conversation, replyToMessageID will remain null.
+	var replyToMessageID uuid.UUID
+	if status.InReplyToID != "" {
+		// Find the teobot Message to reply to
+		replyToMessage, err := t.teobot.FindMessageByMastodonStatusID(ctx, status.InReplyToID)
 		if err != nil {
 			return nil, err
 		}
 		if replyToMessage == nil {
-			return nil, fmt.Errorf("post reconciliation")
+			// The message is not a part of any known conversation threads - needs reconciliation before proceed.
+			_, err := t.ReconcileThread(ctx, status.ID)
+			if err != nil {
+				return nil, fmt.Errorf("reconcile %s: %w", status.InReplyToID, err)
+			}
+
+			// Populate replyToMessage again. This time the message must have been stored in the DB.
+			replyToMessage, err = t.teobot.FindMessageByMastodonStatusID(ctx, status.InReplyToID)
+			if err != nil {
+				return nil, err
+			}
+			if replyToMessage == nil {
+				return nil, fmt.Errorf("post reconciliation")
+			}
 		}
 	}
 
@@ -159,7 +197,7 @@ func (t *TeobotBinding) GenerateResponse(ctx context.Context, status *Status) (*
 	}
 
 	// Generate reply
-	res, err := t.teobot.Talk(ctx, replyToMessage.ID, message)
+	res, err := t.teobot.Talk(ctx, replyToMessageID, message)
 	if err != nil {
 		return nil, err
 	}
@@ -178,11 +216,6 @@ func (t *TeobotBinding) ReplyAndPost(ctx context.Context, status *Status) error 
 	}
 
 	// TODO: Record post result
-	return nil
-}
-
-func (t *TeobotBinding) SaveState() error {
-	// TODO: Save state
 	return nil
 }
 
@@ -211,7 +244,7 @@ func (t *TeobotBinding) Run(ctx context.Context) error {
 			t.lastNotificationID = reply.ID
 		}
 		if err := t.SaveState(); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
+			return fmt.Errorf("save state: %w", err)
 		}
 	}
 

@@ -48,7 +48,8 @@ func parseChatGptMessage(chatgptMessage db.ChatgptMessage) (Message, error) {
 		User: &User{
 			Name: chatgptMessage.UserName,
 		},
-		Text: text,
+		Text:      text,
+		Timestamp: chatgptMessage.Timestamp.Time,
 		RawMeta: map[ChannelType]any{
 			ChannelTypeMastodon: rawMeta,
 		},

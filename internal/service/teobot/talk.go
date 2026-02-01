@@ -2,7 +2,8 @@ package teobot
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -136,11 +137,11 @@ func (t *Teobot) buildExtraContext(ctx context.Context, userName string) (serial
 func (t *Teobot) buildSystemMessages(ctx context.Context, userName string) ([]chatgpt.Message, error) {
 	extraContext, err := t.buildExtraContext(ctx, userName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build extra context: %w", err)
+		return nil, fmt.Errorf("build extra context: %w", err)
 	}
-	extraContextJson, err := json.Marshal(extraContext)
+	extraContextJson, err := json.Marshal(extraContext, jsontext.EscapeForHTML(false))
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal extra context: %w", err)
+		return nil, fmt.Errorf("marshal extra context: %w", err)
 	}
 	systemPromptMessage := chatgpt.Message{
 		Role: "system",

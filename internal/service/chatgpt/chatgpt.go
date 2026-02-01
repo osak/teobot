@@ -3,7 +3,8 @@ package chatgpt
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"log/slog"
@@ -59,22 +60,24 @@ func unmarshalOpenAIObject(b []byte) (OpenAIObject, error) {
 
 type RawObject struct {
 	Type string
-	Data json.RawMessage
+	Data jsontext.Value
 }
 
 func (r *RawObject) GetType() string { return r.Type }
 
-func (r *RawObject) MarshalJSON() ([]byte, error) {
-	return json.Marshal(r.Data)
+// MarshalJSONTo implements MarshalerTo interface
+func (r *RawObject) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return json.MarshalEncode(enc, r.Data)
 }
 
 type OutputText struct {
 	Text string `json:"text"`
 }
 
-func (o OutputText) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o OutputText) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias OutputText
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type string `json:"type"`
 		Alias
 	}{Type: "output_text", Alias: Alias(o)})
@@ -84,9 +87,10 @@ type Refusal struct {
 	Refusal string `json:"refusal"`
 }
 
-func (o Refusal) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o Refusal) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias Refusal
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type string `json:"type"`
 		Alias
 	}{Type: "refusal", Alias: Alias(o)})
@@ -109,7 +113,7 @@ func (o *Message) UnmarshalJSON(data []byte) error {
 	type Alias Message
 	wrapper := struct {
 		Alias
-		Content []json.RawMessage `json:"content"`
+		Content []jsontext.Value `json:"content"`
 	}{}
 
 	if err := json.Unmarshal(data, &wrapper); err != nil {
@@ -131,9 +135,10 @@ func (o *Message) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (o Message) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o Message) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias Message
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type    string           `json:"type"`
 		Content []MessageContent `json:"content"`
 		Alias
@@ -150,9 +155,10 @@ type FunctionCall struct {
 	Status string `json:"status"`
 }
 
-func (o FunctionCall) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o FunctionCall) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias FunctionCall
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type string `json:"type"`
 		Alias
 	}{Type: "function_call", Alias: Alias(o)})
@@ -162,9 +168,10 @@ type SummaryText struct {
 	Text string `json:"text"`
 }
 
-func (o SummaryText) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o SummaryText) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias SummaryText
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type string `json:"type"`
 		Alias
 	}{Type: "summary_text", Alias: Alias(o)})
@@ -174,9 +181,10 @@ type ReasoningText struct {
 	Text string `json:"text"`
 }
 
-func (o ReasoningText) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o ReasoningText) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias ReasoningText
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type string `json:"type"`
 		Alias
 	}{Type: "reasoning_text", Alias: Alias(o)})
@@ -189,9 +197,10 @@ type Reasoning struct {
 	Status  string          `json:"status"`
 }
 
-func (o Reasoning) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o Reasoning) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias Reasoning
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type string `json:"type"`
 		Alias
 	}{Type: "reasoning", Alias: Alias(o)})
@@ -205,9 +214,10 @@ type CustomToolCall struct {
 	ID   string `json:"id"`
 }
 
-func (o CustomToolCall) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o CustomToolCall) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias CustomToolCall
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type string `json:"type"`
 		Alias
 	}{Type: "custom_tool_call", Alias: Alias(o)})
@@ -242,7 +252,7 @@ func (r *ResponsesResponse) UnmarshalJSON(data []byte) error {
 	type Alias ResponsesResponse
 	wrapper := struct {
 		Alias
-		Output []json.RawMessage `json:"output"`
+		Output []jsontext.Value `json:"output"`
 	}{}
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return err
@@ -263,22 +273,24 @@ func (r *ResponsesResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (r ResponsesResponse) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (r ResponsesResponse) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias ResponsesResponse
 	payload := struct {
 		Alias
 		Output []Output `json:"output"`
 	}{Alias: Alias(r), Output: r.Output}
-	return json.Marshal(payload)
+	return json.MarshalEncode(enc, payload)
 }
 
 type InputText struct {
 	Text string `json:"text"`
 }
 
-func (o InputText) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o InputText) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias InputText
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type string `json:"type"`
 		Alias
 	}{Type: "input_text", Alias: Alias(o)})
@@ -289,9 +301,10 @@ type InputImage struct {
 	ImageUrl string `json:"image_url"`
 }
 
-func (o InputImage) MarshalJSON() ([]byte, error) {
+// MarshalJSONTo implements MarshalerTo interface
+func (o InputImage) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type Alias InputImage
-	return json.Marshal(struct {
+	return json.MarshalEncode(enc, struct {
 		Type string `json:"type"`
 		Alias
 	}{Type: "input_image", Alias: Alias(o)})
@@ -327,7 +340,7 @@ type ResponsesRequest struct {
 	Reasoning ReasoningEffort `json:"reasoning"`
 }
 
-func (c *ChatGpt) compileInputMessagePayload(obj OpenAIObject) (json.RawMessage, error) {
+func (c *ChatGpt) compileInputMessagePayload(obj OpenAIObject) (jsontext.Value, error) {
 	if o, ok := obj.(*InputText); ok {
 		return json.Marshal(o)
 	}
@@ -343,8 +356,8 @@ func (c *ChatGpt) compileInputMessagePayload(obj OpenAIObject) (json.RawMessage,
 	return nil, fmt.Errorf("unsupported input message type `%T`", obj)
 }
 
-func (c *ChatGpt) compileResponsesRequestPayload(r *ResponsesRequest) (json.RawMessage, error) {
-	return json.Marshal(r)
+func (c *ChatGpt) compileResponsesRequestPayload(r *ResponsesRequest) (jsontext.Value, error) {
+	return json.Marshal(r, jsontext.EscapeForHTML(false))
 }
 
 func (c *ChatGpt) Responses(ctx context.Context, request *ResponsesRequest) (*ResponsesResponse, error) {
@@ -355,7 +368,7 @@ func (c *ChatGpt) Responses(ctx context.Context, request *ResponsesRequest) (*Re
 	return doRequest[ResponsesResponse](c, ctx, "/responses", payload)
 }
 
-func doRequest[T any](c *ChatGpt, ctx context.Context, path string, payload json.RawMessage) (*T, error) {
+func doRequest[T any](c *ChatGpt, ctx context.Context, path string, payload jsontext.Value) (*T, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", c.apiBase+path, bytes.NewBuffer(payload))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -376,7 +389,7 @@ func doRequest[T any](c *ChatGpt, ctx context.Context, path string, payload json
 	}
 
 	var t T
-	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &t); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %v", err)
 	}
 	return &t, nil

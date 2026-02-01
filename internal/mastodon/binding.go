@@ -167,6 +167,7 @@ func (t *TeobotBinding) GenerateResponse(ctx context.Context, status *Status) (*
 	// If the status is very beginning of a conversation, replyToMessageID will remain null.
 	var replyToMessageID uuid.UUID
 	if status.InReplyToID != "" {
+		slog.Debug(fmt.Sprintf("InReplyToID: %s", status.InReplyToID))
 		// Find the teobot Message to reply to
 		replyToMessage, err := t.teobot.FindMessageByMastodonStatusID(ctx, status.InReplyToID)
 		if err != nil {
@@ -188,6 +189,7 @@ func (t *TeobotBinding) GenerateResponse(ctx context.Context, status *Status) (*
 				return nil, fmt.Errorf("post reconciliation")
 			}
 		}
+		replyToMessageID = replyToMessage.ID
 	}
 
 	// Convert the posted status to teobot Message

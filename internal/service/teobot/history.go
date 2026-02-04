@@ -1,9 +1,9 @@
 package teobot
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,9 +36,8 @@ func splitMeta(content string) (string, string) {
 }
 
 func parseChatGptMessage(chatgptMessage db.ChatgptMessage) (Message, error) {
-	dec := json.NewDecoder(bytes.NewBuffer(chatgptMessage.JsonBody))
 	var dbMessage dbMessageBlob
-	if err := dec.Decode(&dbMessage); err != nil {
+	if err := json.Unmarshal(chatgptMessage.JsonBody, &dbMessage); err != nil {
 		return Message{}, fmt.Errorf("failed to parse message %v: %w", chatgptMessage.ID, err)
 	}
 
@@ -55,6 +54,42 @@ func parseChatGptMessage(chatgptMessage db.ChatgptMessage) (Message, error) {
 		},
 	}
 	return msg, nil
+}
+
+func (t *Teobot) convertToChatGptMessage(message *Message) (*db.CreateChatgptMessageParams, error) {
+	id := message.ID
+	if id == uuid.Nil {
+		id = uuid.Must(uuid.NewV7())
+	}
+	messageType := "user_status"
+	if message.User.Name == t.user.Name {
+		messageType = "ai_response"
+	}
+	blob := dbMessageBlob{
+		Name:    message.User.Name,
+		Role:    messageType,
+		Content: message.Text,
+	}
+	jsonBody, err := json.Marshal(blob, jsontext.EscapeForHTML(false))
+	if err != nil {
+		return nil, err
+	}
+	var mastodonStatusID string
+	if meta, ok := message.RawMeta[ChannelTypeMastodon]; ok {
+		if metaMap, ok := meta.(map[string]string); ok {
+			mastodonStatusID = metaMap["status_id"]
+		}
+	}
+
+	return &db.CreateChatgptMessageParams{
+		ID:               id,
+		MessageType:      messageType,
+		JsonBody:         jsonBody,
+		UserName:         message.User.Name,
+		MastodonStatusID: pgtype.Text{String: mastodonStatusID, Valid: mastodonStatusID != ""},
+		Timestamp:        pgtype.Timestamptz{Time: message.Timestamp, Valid: true},
+		PrivacyLevel:     pgtype.Text{String: string(message.PrivacyLevel), Valid: true},
+	}, nil
 }
 
 func (t *Teobot) loadConversationHistory(ctx context.Context, userName string) ([]*Thread, error) {
@@ -279,4 +314,43 @@ func (t *Teobot) FindOngoingThreadIDByMessageID(ctx context.Context, messageID u
 	}
 
 	return uuid.Nil, ErrNoThread
+}
+
+func (t *Teobot) saveMessages(ctx context.Context, threadID uuid.UUID, messages ...*Message) error {
+	tx, err := t.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	qtx := t.queries.WithTx(tx)
+
+	maxSeqNum, err := qtx.GetMaxSequenceNum(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	for i, message := range messages {
+		seqNum := int(maxSeqNum) + i + 1
+		createMessageParams, err := t.convertToChatGptMessage(message)
+		if err != nil {
+			return fmt.Errorf("convert message %d: %w", i, err)
+		}
+
+		dbMessage, err := qtx.CreateChatgptMessage(ctx, *createMessageParams)
+		if err != nil {
+			return fmt.Errorf("insert message %d: %w", i, err)
+		}
+		err = qtx.CreateChatgptThreadRel(ctx, db.CreateChatgptThreadRelParams{
+			ThreadID:         threadID,
+			ChatgptMessageID: dbMessage.ID,
+			SequenceNum:      int32(seqNum),
+		})
+		if err != nil {
+			return fmt.Errorf("insert thread rel %d: %w", i, err)
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }

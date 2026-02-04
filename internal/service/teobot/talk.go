@@ -290,13 +290,18 @@ func (t *Teobot) Talk(ctx context.Context, replyToMessageID uuid.UUID, message *
 			slog.Info(fmt.Sprintf("Unprocessed response output: %#v", output))
 		}
 	}
-
 	resMsg := Message{
-		ID:           uuid.New(),
+		ID:           uuid.Must(uuid.NewV7()),
 		Text:         resText,
 		PrivacyLevel: message.PrivacyLevel,
 		User:         t.user,
 		Timestamp:    time.Now(),
 	}
+
+	// Save the original message and response
+	if err = t.saveMessages(ctx, threadID, message, &resMsg); err != nil {
+		return nil, fmt.Errorf("save messages: %w", err)
+	}
+
 	return &TalkResponse{Message: resMsg}, nil
 }

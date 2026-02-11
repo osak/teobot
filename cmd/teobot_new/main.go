@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +18,11 @@ import (
 )
 
 func run() error {
+	// Configure global logger
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	env := config.LoadEnvFromOS()
 	chatGpt := chatgpt.New(env.ChatGPTAPIKey)
 
@@ -36,23 +42,33 @@ func run() error {
 
 	t := teobot.New(chatGpt, queries, pool)
 	m := mastodon.NewClient(env.MastodonBaseURL, env.MastodonClientKey, env.MastodonClientSecret, env.MastodonAccessToken)
-	tb, err := mastodon.NewTeobotBinding(t, m)
+	tb, err := mastodon.NewTeobotBinding(t, m, env.TeokureStoragePath)
 	if err != nil {
 		return err
 	}
 
-	status, err := m.GetStatus(os.Args[1])
-	if err != nil {
-		return err
-	}
+	ctx := context.Background()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			slog.Info("Processing new replies...")
+			if err := tb.Run(ctx); err != nil {
+				slog.Error("Failed to process new replies", "error", err)
+			}
 
-	res, err := tb.GenerateResponse(context.Background(), status)
-	if err != nil {
-		return fmt.Errorf("failed to start talk with teobot: %w", err)
-	}
+			slog.Info("Done. Waiting for 30 seconds before next check...")
 
-	slog.Info(fmt.Sprintf("res: %s", res.Message.Text))
-	return nil
+			// Sleep for 30 seconds
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(30 * time.Second):
+				// Continue
+			}
+		}
+	}
 }
 
 func main() {

@@ -13,3 +13,6 @@ migration_up:
 
 migration_down:
 	docker run -v "$(shell pwd)/db/migrations:/migrations" --network teobot_default migrate/migrate -path /migrations -database "postgres://teobot:teo@db/teobot?sslmode=disable" down 1
+
+sqlc:
+	docker run --rm -v $(shell pwd):/src -w /src sqlc/sqlc generate

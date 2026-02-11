@@ -16,7 +16,7 @@ const createChatgptMessage = `-- name: CreateChatgptMessage :one
 INSERT INTO chatgpt_messages (
     id, message_type, json_body, user_name, mastodon_status_id, timestamp, privacy_level
 ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp, privacy_level
+RETURNING id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp, privacy_level, user_id
 `
 
 type CreateChatgptMessageParams struct {
@@ -50,6 +50,7 @@ func (q *Queries) CreateChatgptMessage(ctx context.Context, arg CreateChatgptMes
 		&i.UpdatedAt,
 		&i.Timestamp,
 		&i.PrivacyLevel,
+		&i.UserID,
 	)
 	return i, err
 }
@@ -83,8 +84,38 @@ func (q *Queries) CreateChatgptThreadRel(ctx context.Context, arg CreateChatgptT
 	return err
 }
 
+const createMastodonUserMapping = `-- name: CreateMastodonUserMapping :exec
+INSERT INTO mastodon_user_mappings (mastodon_account_id, user_id)
+VALUES($1, $2)
+`
+
+type CreateMastodonUserMappingParams struct {
+	MastodonAccountID string
+	UserID            uuid.UUID
+}
+
+func (q *Queries) CreateMastodonUserMapping(ctx context.Context, arg CreateMastodonUserMappingParams) error {
+	_, err := q.db.Exec(ctx, createMastodonUserMapping, arg.MastodonAccountID, arg.UserID)
+	return err
+}
+
+const createUser = `-- name: CreateUser :exec
+INSERT INTO users (id, name)
+VALUES($1, $2)
+`
+
+type CreateUserParams struct {
+	ID   uuid.UUID
+	Name string
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
+	_, err := q.db.Exec(ctx, createUser, arg.ID, arg.Name)
+	return err
+}
+
 const findChatgptMessageByMastodonStatusId = `-- name: FindChatgptMessageByMastodonStatusId :one
-SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp, privacy_level
+SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp, privacy_level, user_id
 FROM chatgpt_messages
 WHERE mastodon_status_id = $1
 `
@@ -102,6 +133,7 @@ func (q *Queries) FindChatgptMessageByMastodonStatusId(ctx context.Context, mast
 		&i.UpdatedAt,
 		&i.Timestamp,
 		&i.PrivacyLevel,
+		&i.UserID,
 	)
 	return i, err
 }
@@ -176,7 +208,7 @@ func (q *Queries) GetChatgptThreadRels(ctx context.Context, chatgptMessageID uui
 }
 
 const getFullChatgptMessagesByThreadId = `-- name: GetFullChatgptMessagesByThreadId :many
-SELECT chatgpt_messages.id, chatgpt_messages.message_type, chatgpt_messages.json_body, chatgpt_messages.user_name, chatgpt_messages.mastodon_status_id, chatgpt_messages.created_at, chatgpt_messages.updated_at, chatgpt_messages.timestamp, chatgpt_messages.privacy_level
+SELECT chatgpt_messages.id, chatgpt_messages.message_type, chatgpt_messages.json_body, chatgpt_messages.user_name, chatgpt_messages.mastodon_status_id, chatgpt_messages.created_at, chatgpt_messages.updated_at, chatgpt_messages.timestamp, chatgpt_messages.privacy_level, chatgpt_messages.user_id
 FROM chatgpt_messages
  INNER JOIN chatgpt_threads_rel ON chatgpt_messages.id = chatgpt_threads_rel.chatgpt_message_id
 WHERE chatgpt_threads_rel.thread_id = $1
@@ -203,6 +235,7 @@ func (q *Queries) GetFullChatgptMessagesByThreadId(ctx context.Context, threadID
 			&i.UpdatedAt,
 			&i.Timestamp,
 			&i.PrivacyLevel,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -264,7 +297,7 @@ func (q *Queries) GetRecentChatgptMessages(ctx context.Context, limit int32) ([]
 }
 
 const getRecentFullChatgptMessages = `-- name: GetRecentFullChatgptMessages :many
-SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp, privacy_level
+SELECT id, message_type, json_body, user_name, mastodon_status_id, created_at, updated_at, timestamp, privacy_level, user_id
 FROM chatgpt_messages
 WHERE message_type != 'pseudo_message'
 AND privacy_level != 'private'
@@ -291,6 +324,7 @@ func (q *Queries) GetRecentFullChatgptMessages(ctx context.Context, limit int32)
 			&i.UpdatedAt,
 			&i.Timestamp,
 			&i.PrivacyLevel,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -338,4 +372,53 @@ func (q *Queries) GetRecentThreadIdsByUserName(ctx context.Context, arg GetRecen
 		return nil, err
 	}
 	return items, nil
+}
+
+const getUserByMastodonAccountId = `-- name: GetUserByMastodonAccountId :one
+SELECT id, name, users.created_at, users.updated_at, mastodon_account_id, user_id, mastodon_user_mappings.created_at, mastodon_user_mappings.updated_at
+FROM users
+INNER JOIN mastodon_user_mappings ON users.id = mastodon_user_mappings.user_id
+WHERE mastodon_user_mappings.mastodon_account_id = $1
+`
+
+type GetUserByMastodonAccountIdRow struct {
+	ID                uuid.UUID
+	Name              string
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	MastodonAccountID string
+	UserID            uuid.UUID
+	CreatedAt_2       pgtype.Timestamptz
+	UpdatedAt_2       pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserByMastodonAccountId(ctx context.Context, mastodonAccountID string) (GetUserByMastodonAccountIdRow, error) {
+	row := q.db.QueryRow(ctx, getUserByMastodonAccountId, mastodonAccountID)
+	var i GetUserByMastodonAccountIdRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.MastodonAccountID,
+		&i.UserID,
+		&i.CreatedAt_2,
+		&i.UpdatedAt_2,
+	)
+	return i, err
+}
+
+const updateMastodonStatusId = `-- name: UpdateMastodonStatusId :exec
+UPDATE chatgpt_messages SET mastodon_status_id = $1
+WHERE id = $2
+`
+
+type UpdateMastodonStatusIdParams struct {
+	MastodonStatusID pgtype.Text
+	ID               uuid.UUID
+}
+
+func (q *Queries) UpdateMastodonStatusId(ctx context.Context, arg UpdateMastodonStatusIdParams) error {
+	_, err := q.db.Exec(ctx, updateMastodonStatusId, arg.MastodonStatusID, arg.ID)
+	return err
 }

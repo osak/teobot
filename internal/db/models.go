@@ -19,6 +19,7 @@ type ChatgptMessage struct {
 	UpdatedAt        pgtype.Timestamptz
 	Timestamp        pgtype.Timestamptz
 	PrivacyLevel     pgtype.Text
+	UserID           pgtype.UUID
 }
 
 type ChatgptThread struct {
@@ -33,4 +34,18 @@ type ChatgptThreadsRel struct {
 	SequenceNum      int32
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
+}
+
+type MastodonUserMapping struct {
+	MastodonAccountID string
+	UserID            uuid.UUID
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+type User struct {
+	ID        uuid.UUID
+	Name      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
 }

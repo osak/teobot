@@ -354,3 +354,28 @@ func (t *Teobot) saveMessages(ctx context.Context, threadID uuid.UUID, messages 
 
 	return nil
 }
+
+// RecordMastodonStatusID updates the DB to record in which Mastodon status the teobot response has been posted.
+// Ideally it's the binding's responsibility to maintain the association between mastodon status ID and teobot message ID,
+// but the DB has already been designed so the teobot message table directly keeps tracking of mastodon status...
+func (t *Teobot) RecordMastodonStatusID(ctx context.Context, messageID uuid.UUID, mastodonStatusID string) error {
+	tx, err := t.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	qtx := t.queries.WithTx(tx)
+
+	err = qtx.UpdateMastodonStatusId(ctx, db.UpdateMastodonStatusIdParams{
+		ID:               messageID,
+		MastodonStatusID: pgtype.Text{String: mastodonStatusID, Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	return nil
+}

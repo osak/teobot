@@ -90,3 +90,7 @@ SELECT *
 FROM users
 INNER JOIN mastodon_user_mappings ON users.id = mastodon_user_mappings.user_id
 WHERE mastodon_user_mappings.mastodon_account_id = $1;
+
+-- name: UpdateMastodonStatusId :exec
+UPDATE chatgpt_messages SET mastodon_status_id = $1
+WHERE id = $2;

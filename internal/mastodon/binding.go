@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,7 +29,7 @@ type state struct {
 	LastNotificationID string `json:"lastNotificationId,omitempty"`
 }
 
-func NewTeobotBinding(t *teobot.Teobot, mastodon Client) (*TeobotBinding, error) {
+func NewTeobotBinding(t *teobot.Teobot, mastodon Client, dataStoragePath string) (*TeobotBinding, error) {
 	acct, err := mastodon.VerifyCredentials()
 	if err != nil {
 		return nil, err
@@ -38,6 +39,10 @@ func NewTeobotBinding(t *teobot.Teobot, mastodon Client) (*TeobotBinding, error)
 		mastodon:           mastodon,
 		myAccountID:        acct.ID,
 		lastNotificationID: "",
+		dataStoragePath:    dataStoragePath,
+	}
+	if err := tb.LoadState(); err != nil {
+		return nil, fmt.Errorf("load state: %w", err)
 	}
 	return &tb, nil
 }
@@ -126,9 +131,39 @@ func (t *TeobotBinding) ReconcileThread(ctx context.Context, statusId string) (u
 	return threadID, nil
 }
 
-func (t *TeobotBinding) postReply(ctx context.Context, response *teobot.TalkResponse, replyTo *Status) error {
+func (t *TeobotBinding) postReply(ctx context.Context, response *teobot.TalkResponse, replyTo *Status) (*Status, error) {
+	// Remove <responseMeta>...</responseMeta> section from the response
+	// NOTE: Current code assumes that this section will only appear in the end of the response.
+	content := response.Message.Text
+	if idx := strings.LastIndex(content, "<responseMeta>"); idx >= 0 {
+		// Extract meta before stripping, so we can emit metrics
+		endIdx := strings.LastIndex(content, "</responseMeta>")
+		if endIdx > idx {
+			metaStr := content[idx+len("<responseMeta>") : endIdx]
+			var meta map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(metaStr)), &meta); err == nil {
+				if s, ok := meta["seriousness"].(string); ok {
+					switch strings.ToUpper(s) {
+					case "LOW":
+						metrics.RecordCount1("teobot/seriousness/LOW")
+					case "MED":
+						metrics.RecordCount1("teobot/seriousness/MED")
+					case "HIGH":
+						metrics.RecordCount1("teobot/seriousness/HIGH")
+					default:
+						metrics.RecordCount1("teobot/seriousness/UNKNOWN")
+					}
+				}
+			} else {
+				// Non-fatal, but record an error metric
+				metrics.NoticeError(ctx, fmt.Errorf("failed to parse responseMeta: %w", err))
+			}
+		}
+		content = content[:idx]
+	}
+
 	// Sanitize response message to avoid accidentally mention random people
-	sanitized := utext.ReplaceAll(utext.New(response.Message.Text), "@", "@ ")
+	sanitized := utext.ReplaceAll(utext.New(content), "@", "@ ")
 
 	// Split utext into chunks to fit to character limit of Mastodon
 	texts := []*utext.Text{sanitized}
@@ -136,12 +171,13 @@ func (t *TeobotBinding) postReply(ctx context.Context, response *teobot.TalkResp
 		ts := textsplit.NewTextSplitService(nil)
 		newTexts, err := ts.SplitText(sanitized, 450)
 		if err != nil {
-			return fmt.Errorf("split text: %w", err)
+			return nil, fmt.Errorf("split text: %w", err)
 		}
 		texts = newTexts
 	}
 
 	// Post messages in the reply chain
+	var lastStatus *Status
 	inReplyToId := replyTo.ID
 	for _, text := range texts {
 		body := fmt.Sprintf("@%s %s", replyTo.Account.Acct, text)
@@ -152,13 +188,14 @@ func (t *TeobotBinding) postReply(ctx context.Context, response *teobot.TalkResp
 		if err != nil {
 			wrapped := fmt.Errorf("post status: %w", err)
 			metrics.NoticeError(ctx, wrapped)
-			return wrapped
+			return nil, wrapped
 		}
 
 		inReplyToId = newStatus.ID
+		lastStatus = newStatus
 	}
 
-	return nil
+	return lastStatus, nil
 }
 
 func (t *TeobotBinding) GenerateResponse(ctx context.Context, status *Status) (*teobot.TalkResponse, error) {
@@ -213,11 +250,15 @@ func (t *TeobotBinding) ReplyAndPost(ctx context.Context, status *Status) error 
 	}
 
 	// Post the reply message to Mastodon
-	if err := t.postReply(ctx, res, status); err != nil {
+	lastStatus, err := t.postReply(ctx, res, status)
+	if err != nil {
 		return err
 	}
 
-	// TODO: Record post result
+	if err := t.teobot.RecordMastodonStatusID(ctx, res.Message.ID, lastStatus.ID); err != nil {
+		return err
+	}
+
 	return nil
 }
 

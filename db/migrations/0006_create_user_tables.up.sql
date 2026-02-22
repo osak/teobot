@@ -11,7 +11,7 @@ CREATE TABLE users(
 ALTER TABLE chatgpt_messages ADD COLUMN user_id UUID REFERENCES users(id);
 
 CREATE TABLE mastodon_user_mappings(
-    mastodon_account_id TEXT NOT NULL,
+    mastodon_account_id TEXT NOT NULL UNIQUE,
     user_id UUID NOT NULL REFERENCES users(id),
 
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

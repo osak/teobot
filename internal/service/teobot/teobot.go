@@ -1,6 +1,9 @@
 package teobot
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/osak/teobot/internal/db"
 	"github.com/osak/teobot/internal/service/chatgpt"
@@ -14,14 +17,27 @@ type Teobot struct {
 	user *User
 }
 
-func New(chatGpt *chatgpt.ChatGpt, queries *db.Queries, pool *pgxpool.Pool) *Teobot {
-	user := &User{
-		Name: "teobot",
+func New(ctx context.Context, chatGpt *chatgpt.ChatGpt, queries *db.Queries, pool *pgxpool.Pool) (*Teobot, error) {
+	// TODO: Rewrite to avoid depending on Mastodon
+	row, err := queries.GetUserByMastodonAccountId(ctx, "teobot")
+	if err != nil {
+		return nil, fmt.Errorf("find teobot user: %w", err)
+	}
+	user := User{
+		ID:   row.ID,
+		Name: row.Name,
 	}
 	return &Teobot{
 		chatGpt: chatGpt,
 		queries: queries,
 		pool:    pool,
-		user:    user,
-	}
+		user:    &user,
+	}, nil
+}
+
+func (t *Teobot) CreateUser(ctx context.Context, user *User) error {
+	return t.queries.CreateUser(ctx, db.CreateUserParams{
+		ID:   user.ID,
+		Name: user.Name,
+	})
 }

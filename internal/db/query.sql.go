@@ -375,35 +375,20 @@ func (q *Queries) GetRecentThreadIdsByUserName(ctx context.Context, arg GetRecen
 }
 
 const getUserByMastodonAccountId = `-- name: GetUserByMastodonAccountId :one
-SELECT id, name, users.created_at, users.updated_at, mastodon_account_id, user_id, mastodon_user_mappings.created_at, mastodon_user_mappings.updated_at
+SELECT users.id, users.name, users.created_at, users.updated_at
 FROM users
 INNER JOIN mastodon_user_mappings ON users.id = mastodon_user_mappings.user_id
 WHERE mastodon_user_mappings.mastodon_account_id = $1
 `
 
-type GetUserByMastodonAccountIdRow struct {
-	ID                uuid.UUID
-	Name              string
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
-	MastodonAccountID string
-	UserID            uuid.UUID
-	CreatedAt_2       pgtype.Timestamptz
-	UpdatedAt_2       pgtype.Timestamptz
-}
-
-func (q *Queries) GetUserByMastodonAccountId(ctx context.Context, mastodonAccountID string) (GetUserByMastodonAccountIdRow, error) {
+func (q *Queries) GetUserByMastodonAccountId(ctx context.Context, mastodonAccountID string) (User, error) {
 	row := q.db.QueryRow(ctx, getUserByMastodonAccountId, mastodonAccountID)
-	var i GetUserByMastodonAccountIdRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.MastodonAccountID,
-		&i.UserID,
-		&i.CreatedAt_2,
-		&i.UpdatedAt_2,
 	)
 	return i, err
 }

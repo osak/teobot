@@ -40,14 +40,18 @@ func run() error {
 	}
 	queries := db.New(pool)
 
-	t := teobot.New(chatGpt, queries, pool)
-	m := mastodon.NewClient(env.MastodonBaseURL, env.MastodonClientKey, env.MastodonClientSecret, env.MastodonAccessToken)
-	tb, err := mastodon.NewTeobotBinding(t, m, env.TeokureStoragePath)
+	ctx := context.Background()
+	t, err := teobot.New(ctx, chatGpt, queries, pool)
 	if err != nil {
 		return err
 	}
 
-	ctx := context.Background()
+	m := mastodon.NewClient(env.MastodonBaseURL, env.MastodonClientKey, env.MastodonClientSecret, env.MastodonAccessToken)
+	tb, err := mastodon.NewTeobotBinding(t, m, env.TeokureStoragePath, queries, pool)
+	if err != nil {
+		return err
+	}
+
 	for {
 		select {
 		case <-ctx.Done():

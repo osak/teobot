@@ -1,10 +1,11 @@
 create temporary table temp_users as (
-    with users as (select distinct user_name from chatgpt_messages)
+    with users as (select distinct case
+        when user_name = '' then 'teobot'
+        else user_name
+    end as user_name
+    from chatgpt_messages)
     select
-        case
-            when user_name = '' then 'teobot'
-            else user_name
-            end as mastodon_account_id,
+        user_name as mastodon_account_id,
         gen_random_uuid() as id
     from users
 );

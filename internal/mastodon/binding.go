@@ -3,6 +3,7 @@ package mastodon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/osak/teobot/internal/db"
 	"github.com/osak/teobot/internal/metrics"
 	"github.com/osak/teobot/internal/service/teobot"
 	utext "github.com/osak/teobot/internal/text"
@@ -23,13 +27,15 @@ type TeobotBinding struct {
 	myAccountID        string
 	lastNotificationID string
 	dataStoragePath    string
+	queries            *db.Queries
+	pool               *pgxpool.Pool
 }
 
 type state struct {
 	LastNotificationID string `json:"lastNotificationId,omitempty"`
 }
 
-func NewTeobotBinding(t *teobot.Teobot, mastodon Client, dataStoragePath string) (*TeobotBinding, error) {
+func NewTeobotBinding(t *teobot.Teobot, mastodon Client, dataStoragePath string, queries *db.Queries, pool *pgxpool.Pool) (*TeobotBinding, error) {
 	acct, err := mastodon.VerifyCredentials()
 	if err != nil {
 		return nil, err
@@ -37,9 +43,11 @@ func NewTeobotBinding(t *teobot.Teobot, mastodon Client, dataStoragePath string)
 	tb := TeobotBinding{
 		teobot:             t,
 		mastodon:           mastodon,
-		myAccountID:        acct.ID,
+		myAccountID:        acct.Acct,
 		lastNotificationID: "",
 		dataStoragePath:    dataStoragePath,
+		queries:            queries,
+		pool:               pool,
 	}
 	if err := tb.LoadState(); err != nil {
 		return nil, fmt.Errorf("load state: %w", err)
@@ -78,7 +86,7 @@ func getPrivacyLevel(status *Status) teobot.PrivacyLevel {
 	return teobot.PrivacyLevelPublic
 }
 
-func (t *TeobotBinding) convertToMessage(status *Status) (*teobot.Message, error) {
+func (t *TeobotBinding) convertToMessage(status *Status, user *teobot.User) (*teobot.Message, error) {
 	timestamp, err := time.Parse(time.RFC3339, status.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse status.CreatedAt `%s`: %w", status.CreatedAt, err)
@@ -86,16 +94,54 @@ func (t *TeobotBinding) convertToMessage(status *Status) (*teobot.Message, error
 	return &teobot.Message{
 		Text:         NormalizeStatusContent(status),
 		PrivacyLevel: getPrivacyLevel(status),
-		User: &teobot.User{
-			Name: status.Account.Acct,
-		},
-		Timestamp: timestamp,
+		User:         user,
+		Timestamp:    timestamp,
 		RawMeta: map[teobot.ChannelType]any{
 			teobot.ChannelTypeMastodon: map[string]string{
 				"status_id": status.ID,
 			},
 		},
 	}, nil
+}
+
+func (t *TeobotBinding) resolveUser(ctx context.Context, account *Account) (*teobot.User, error) {
+	tx, err := t.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	qtx := t.queries.WithTx(tx)
+	row, err := qtx.GetUserByMastodonAccountId(ctx, account.Acct)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			user := teobot.User{
+				ID:   uuid.Must(uuid.NewV7()),
+				Name: account.Acct,
+			}
+			if err := t.teobot.CreateUser(ctx, &user); err != nil {
+				return nil, fmt.Errorf("create user: %w", err)
+			}
+			err := qtx.CreateMastodonUserMapping(ctx, db.CreateMastodonUserMappingParams{
+				MastodonAccountID: account.Acct,
+				UserID:            user.ID,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create user mapping: %w", err)
+			}
+			return &user, nil
+		}
+
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	user := teobot.User{
+		ID:   row.ID,
+		Name: row.Name,
+	}
+	return &user, nil
 }
 
 // ReconcileThread reconciles the Mastodon reply tree for a given status ID.
@@ -113,7 +159,12 @@ func (t *TeobotBinding) ReconcileThread(ctx context.Context, statusId string) (u
 	// Build messages history from the thread
 	var messages []*teobot.Message
 	for _, status := range tree.Ancestors {
-		message, err := t.convertToMessage(status)
+		user, err := t.resolveUser(ctx, &status.Account)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to resolve user %v for status %v: %v", status.Account.ID, status.ID, err))
+			continue
+		}
+		message, err := t.convertToMessage(status, user)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to convert status %s to Message: %v", status.ID, err))
 			continue
@@ -229,8 +280,14 @@ func (t *TeobotBinding) GenerateResponse(ctx context.Context, status *Status) (*
 		replyToMessageID = replyToMessage.ID
 	}
 
+	user, err := t.resolveUser(ctx, &status.Account)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info(fmt.Sprintf("resolved user: %v", *user))
+
 	// Convert the posted status to teobot Message
-	message, err := t.convertToMessage(status)
+	message, err := t.convertToMessage(status, user)
 	if err != nil {
 		return nil, err
 	}

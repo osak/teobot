@@ -347,6 +347,25 @@ func (t *Teobot) saveMessages(ctx context.Context, threadID uuid.UUID, messages 
 		if err != nil {
 			return fmt.Errorf("insert thread rel %d: %w", i, err)
 		}
+
+		// Save images
+		for _, imageUrl := range message.ImageUrls {
+			imageID := uuid.Must(uuid.NewV7())
+			err := qtx.CreateImage(ctx, db.CreateImageParams{
+				ID:  imageID,
+				Url: imageUrl,
+			})
+			if err != nil {
+				return fmt.Errorf("insert image %d: %w", i, err)
+			}
+			err = qtx.CreateChatGptMessageImageRel(ctx, db.CreateChatGptMessageImageRelParams{
+				ChatgptMessageID: dbMessage.ID,
+				ImageID:          imageID,
+			})
+			if err != nil {
+				return fmt.Errorf("insert image rel %d: %w", i, err)
+			}
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return err

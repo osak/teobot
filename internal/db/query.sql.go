@@ -12,6 +12,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createChatGptMessageImageRel = `-- name: CreateChatGptMessageImageRel :exec
+INSERT INTO chatgpt_message_image_rel (chatgpt_message_id, image_id)
+VALUES($1, $2)
+`
+
+type CreateChatGptMessageImageRelParams struct {
+	ChatgptMessageID uuid.UUID
+	ImageID          uuid.UUID
+}
+
+func (q *Queries) CreateChatGptMessageImageRel(ctx context.Context, arg CreateChatGptMessageImageRelParams) error {
+	_, err := q.db.Exec(ctx, createChatGptMessageImageRel, arg.ChatgptMessageID, arg.ImageID)
+	return err
+}
+
 const createChatgptMessage = `-- name: CreateChatgptMessage :one
 INSERT INTO chatgpt_messages (
     id, message_type, json_body, user_name, mastodon_status_id, timestamp, privacy_level
@@ -81,6 +96,21 @@ type CreateChatgptThreadRelParams struct {
 
 func (q *Queries) CreateChatgptThreadRel(ctx context.Context, arg CreateChatgptThreadRelParams) error {
 	_, err := q.db.Exec(ctx, createChatgptThreadRel, arg.ThreadID, arg.ChatgptMessageID, arg.SequenceNum)
+	return err
+}
+
+const createImage = `-- name: CreateImage :exec
+INSERT INTO images (id, url)
+VALUES($1, $2)
+`
+
+type CreateImageParams struct {
+	ID  uuid.UUID
+	Url string
+}
+
+func (q *Queries) CreateImage(ctx context.Context, arg CreateImageParams) error {
+	_, err := q.db.Exec(ctx, createImage, arg.ID, arg.Url)
 	return err
 }
 
@@ -236,6 +266,38 @@ func (q *Queries) GetFullChatgptMessagesByThreadId(ctx context.Context, threadID
 			&i.Timestamp,
 			&i.PrivacyLevel,
 			&i.UserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getImagesByChatGptMessageId = `-- name: GetImagesByChatGptMessageId :many
+SELECT images.id, images.url, images.created_at, images.updated_at
+FROM images
+INNER JOIN chatgpt_message_image_rel AS cmir ON images.id = cmir.image_id
+WHERE cmir.chatgpt_message_id = $1
+`
+
+func (q *Queries) GetImagesByChatGptMessageId(ctx context.Context, chatgptMessageID uuid.UUID) ([]Image, error) {
+	rows, err := q.db.Query(ctx, getImagesByChatGptMessageId, chatgptMessageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Image
+	for rows.Next() {
+		var i Image
+		if err := rows.Scan(
+			&i.ID,
+			&i.Url,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

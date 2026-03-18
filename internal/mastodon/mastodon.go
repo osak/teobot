@@ -48,14 +48,15 @@ type Account struct {
 
 // Status represents a Mastodon post
 type Status struct {
-	ID                 string  `json:"id"`
-	URL                string  `json:"url"`
-	InReplyToID        string  `json:"in_reply_to_id"`
-	InReplyToAccountID string  `json:"in_reply_to_account_id"`
-	Content            string  `json:"content"`
-	Account            Account `json:"account"`
-	Visibility         string  `json:"visibility"`
-	CreatedAt          string  `json:"created_at"`
+	ID                 string             `json:"id"`
+	URL                string             `json:"url"`
+	InReplyToID        string             `json:"in_reply_to_id"`
+	InReplyToAccountID string             `json:"in_reply_to_account_id"`
+	Content            string             `json:"content"`
+	Account            Account            `json:"account"`
+	Visibility         string             `json:"visibility"`
+	MediaAttachments   []*MediaAttachment `json:"media_attachments"`
+	CreatedAt          string             `json:"created_at"`
 }
 
 // PartialStatus contains a subset of Status fields for history

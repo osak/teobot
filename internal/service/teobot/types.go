@@ -40,6 +40,7 @@ func (u *User) Equal(other *User) bool {
 type Message struct {
 	ID           uuid.UUID
 	Text         string
+	ImageUrls    []string
 	PrivacyLevel PrivacyLevel
 	User         *User
 	Timestamp    time.Time

@@ -43,12 +43,14 @@ func main() {
 
 	cmd := os.Args[1]
 	subArgs := os.Args[2:]
+	var err error
 	switch cmd {
 	case "status":
-		if err := app.doGetStatus(subArgs); err != nil {
-			slog.Error("Error", err)
-		}
+		err = app.doGetStatus(subArgs)
 	default:
 		slog.Error(fmt.Sprintf("Unknown command %q", cmd))
+	}
+	if err != nil {
+		slog.Error("Error", "error", err)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,21 +36,6 @@ func convertMessage(message *Message) serializableMessage {
 		Metadata:  message.RawMeta,
 		Timestamp: message.Timestamp,
 	}
-}
-
-func formatMessageAsInput(message *Message) string {
-	builder := strings.Builder{}
-	builder.WriteString(message.Text)
-	builder.WriteString("\n")
-	for ch, meta := range message.RawMeta {
-		builder.WriteString(fmt.Sprintf("<metadata channel=\"%s\">\n", ch))
-		if m, ok := meta.(string); ok {
-			builder.WriteString(m)
-			builder.WriteString("\n")
-		}
-		builder.WriteString("</metadata>\n")
-	}
-	return builder.String()
 }
 
 const basePrompt = `
@@ -191,19 +175,9 @@ func (t *Teobot) buildCurrentThreadMessages(ctx context.Context, threadID uuid.U
 			return nil, fmt.Errorf("parse message %s: %w", row.ID, err)
 		}
 		if message.User.Name == "teobot" {
-			messages[i] = chatgpt.Message{
-				Role: "assistant",
-				Content: []chatgpt.MessageContent{
-					chatgpt.OutputText{Text: formatMessageAsInput(&message)},
-				},
-			}
+			messages[i] = message.ToChatGptMessage(chatgpt.RoleAssistant)
 		} else {
-			messages[i] = chatgpt.Message{
-				Role: "user",
-				Content: []chatgpt.MessageContent{
-					chatgpt.InputText{Text: formatMessageAsInput(&message)},
-				},
-			}
+			messages[i] = message.ToChatGptMessage(chatgpt.RoleUser)
 		}
 	}
 
@@ -250,14 +224,7 @@ func (t *Teobot) Talk(ctx context.Context, replyToMessageID uuid.UUID, message *
 	for _, threadMessages := range threadMessages {
 		inputMessages = append(inputMessages, threadMessages)
 	}
-	inputMessages = append(inputMessages, chatgpt.Message{
-		Role: "user",
-		Content: []chatgpt.MessageContent{
-			chatgpt.InputText{
-				Text: message.Text,
-			},
-		},
-	})
+	inputMessages = append(inputMessages, message.ToChatGptMessage(chatgpt.RoleUser))
 
 	// Call ChatGPT to generate the response
 	req := chatgpt.ResponsesRequest{

@@ -6,6 +6,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file:
+      - .env
     volumes:
       - ./data:/opt/teobot/data
       - ./tmp:/opt/teobot/tmp

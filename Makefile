@@ -3,13 +3,16 @@
 all: bin/teobot
 
 bin/teobot:
-	go build -o bin/teobot cmd/teobot/main.go
+	GOEXPERIMENT=jsonv2 go build -o bin/teobot cmd/teobot_new/main.go
 
 build_chat_history:
 	go build -o bin/build_chat_history cmd/build_chat_history/main.go
 
 migration_up:
-	migrate -path db/migrations -database "postgres://teobot:teo@127.0.0.1/teobot?sslmode=disable" up
+	docker run -v "$(shell pwd)/db/migrations:/migrations" --network teobot_default migrate/migrate -path /migrations -database "postgres://teobot:teo@db/teobot?sslmode=disable" up
 
 migration_down:
-	migrate -path db/migrations -database "postgres://teobot:teo@127.0.0.1/teobot?sslmode=disable" down 1
+	docker run -v "$(shell pwd)/db/migrations:/migrations" --network teobot_default migrate/migrate -path /migrations -database "postgres://teobot:teo@db/teobot?sslmode=disable" down 1
+
+sqlc:
+	docker run --rm -v $(shell pwd):/src -w /src sqlc/sqlc generate

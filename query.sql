@@ -33,6 +33,22 @@ AND privacy_level != 'private'
 ORDER BY timestamp DESC
 LIMIT $1;
 
+-- name: GetFullChatgptMessagesByThreadId :many
+SELECT chatgpt_messages.*
+FROM chatgpt_messages
+ INNER JOIN chatgpt_threads_rel ON chatgpt_messages.id = chatgpt_threads_rel.chatgpt_message_id
+WHERE chatgpt_threads_rel.thread_id = $1
+  AND message_type != 'pseudo_message'
+ORDER BY chatgpt_threads_rel.sequence_num;
+
+-- name: GetRecentFullChatgptMessages :many
+SELECT *
+FROM chatgpt_messages
+WHERE message_type != 'pseudo_message'
+AND privacy_level != 'private'
+ORDER BY timestamp DESC
+LIMIT $1;
+
 -- name: CreateChatgptThreadRel :exec
 INSERT INTO chatgpt_threads_rel (
     thread_id, chatgpt_message_id, sequence_num
@@ -60,3 +76,21 @@ WHERE chatgpt_message_id IN (
     ORDER BY timestamp DESC
     LIMIT $2
 );
+
+-- name: CreateUser :exec
+INSERT INTO users (id, name)
+VALUES($1, $2);
+
+-- name: CreateMastodonUserMapping :exec
+INSERT INTO mastodon_user_mappings (mastodon_account_id, user_id)
+VALUES($1, $2);
+
+-- name: GetUserByMastodonAccountId :one
+SELECT users.*
+FROM users
+INNER JOIN mastodon_user_mappings ON users.id = mastodon_user_mappings.user_id
+WHERE mastodon_user_mappings.mastodon_account_id = $1;
+
+-- name: UpdateMastodonStatusId :exec
+UPDATE chatgpt_messages SET mastodon_status_id = $1
+WHERE id = $2;

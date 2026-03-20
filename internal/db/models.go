@@ -25,6 +25,7 @@ type ChatgptMessage struct {
 type ChatgptMessageImageRel struct {
 	ChatgptMessageID uuid.UUID
 	ImageID          uuid.UUID
+	Position         int32
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 }

@@ -308,7 +308,7 @@ func (t *Teobot) saveMessages(ctx context.Context, threadID uuid.UUID, messages 
 		}
 
 		// Save images
-		for _, imageUrl := range message.ImageUrls {
+		for i, imageUrl := range message.ImageUrls {
 			imageID := uuid.Must(uuid.NewV7())
 			err := qtx.CreateImage(ctx, db.CreateImageParams{
 				ID:  imageID,
@@ -320,6 +320,7 @@ func (t *Teobot) saveMessages(ctx context.Context, threadID uuid.UUID, messages 
 			err = qtx.CreateChatGptMessageImageRel(ctx, db.CreateChatGptMessageImageRelParams{
 				ChatgptMessageID: dbMessage.ID,
 				ImageID:          imageID,
+				Position:         int32(i),
 			})
 			if err != nil {
 				return fmt.Errorf("insert image rel %d: %w", i, err)

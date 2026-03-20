@@ -100,8 +100,8 @@ INSERT INTO images (id, url)
 VALUES($1, $2);
 
 -- name: CreateChatGptMessageImageRel :exec
-INSERT INTO chatgpt_message_image_rel (chatgpt_message_id, image_id)
-VALUES($1, $2);
+INSERT INTO chatgpt_message_image_rel (chatgpt_message_id, image_id, position)
+VALUES($1, $2, $3);
 
 -- name: GetImagesByChatGptMessageId :many
 SELECT images.*
@@ -116,4 +116,5 @@ SELECT
     images.*
 FROM chatgpt_message_image_rel AS rel
 INNER JOIN images ON rel.image_id = images.id
-WHERE rel.chatgpt_message_id = ANY($1 :: UUID[]);
+WHERE rel.chatgpt_message_id = ANY($1 :: UUID[])
+ORDER BY rel.chatgpt_message_id, rel.position;

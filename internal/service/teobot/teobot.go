@@ -28,11 +28,13 @@ func New(ctx context.Context, chatGpt *chatgpt.ChatGpt, queries *db.Queries, poo
 		ID:   row.ID,
 		Name: row.Name,
 	}
+	repository := NewRepository(queries)
 	return &Teobot{
-		chatGpt: chatGpt,
-		queries: queries,
-		pool:    pool,
-		user:    &user,
+		chatGpt:    chatGpt,
+		queries:    queries,
+		pool:       pool,
+		user:       &user,
+		repository: &repository,
 	}, nil
 }
 

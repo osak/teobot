@@ -82,6 +82,7 @@ func (t *Teobot) loadConversationHistory(ctx context.Context, userName string) (
 
 	threads := make([]*Thread, 0, len(threadIds))
 	for _, threadId := range threadIds {
+		slog.Debug("Loading thread", "threadId", threadId)
 		messages, err := t.repository.LoadMessagesInThread(ctx, threadId)
 		if err != nil {
 			return nil, fmt.Errorf("load thread %v: %w", threadId, err)

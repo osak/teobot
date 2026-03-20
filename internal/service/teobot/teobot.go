@@ -10,9 +10,10 @@ import (
 )
 
 type Teobot struct {
-	chatGpt *chatgpt.ChatGpt
-	queries *db.Queries
-	pool    *pgxpool.Pool
+	chatGpt    *chatgpt.ChatGpt
+	queries    *db.Queries
+	pool       *pgxpool.Pool
+	repository *Repository
 	// user is an DB entity that represents the bot itself.
 	user *User
 }

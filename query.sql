@@ -108,3 +108,12 @@ SELECT images.*
 FROM images
 INNER JOIN chatgpt_message_image_rel AS cmir ON images.id = cmir.image_id
 WHERE cmir.chatgpt_message_id = $1;
+
+-- name: GetImagesByChatGptMessageIds :many
+SELECT
+    rel.chatgpt_message_id,
+    rel.image_id,
+    images.*
+FROM chatgpt_message_image_rel AS rel
+INNER JOIN images ON rel.image_id = images.id
+WHERE rel.chatgpt_message_id = ANY($1 :: UUID[]);

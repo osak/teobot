@@ -309,6 +309,52 @@ func (q *Queries) GetImagesByChatGptMessageId(ctx context.Context, chatgptMessag
 	return items, nil
 }
 
+const getImagesByChatGptMessageIds = `-- name: GetImagesByChatGptMessageIds :many
+SELECT
+    rel.chatgpt_message_id,
+    rel.image_id,
+    images.id, images.url, images.created_at, images.updated_at
+FROM chatgpt_message_image_rel AS rel
+INNER JOIN images ON rel.image_id = images.id
+WHERE rel.chatgpt_message_id = ANY($1 :: UUID[])
+`
+
+type GetImagesByChatGptMessageIdsRow struct {
+	ChatgptMessageID uuid.UUID
+	ImageID          uuid.UUID
+	ID               uuid.UUID
+	Url              string
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) GetImagesByChatGptMessageIds(ctx context.Context, dollar_1 []uuid.UUID) ([]GetImagesByChatGptMessageIdsRow, error) {
+	rows, err := q.db.Query(ctx, getImagesByChatGptMessageIds, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetImagesByChatGptMessageIdsRow
+	for rows.Next() {
+		var i GetImagesByChatGptMessageIdsRow
+		if err := rows.Scan(
+			&i.ChatgptMessageID,
+			&i.ImageID,
+			&i.ID,
+			&i.Url,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMaxSequenceNum = `-- name: GetMaxSequenceNum :one
 SELECT COALESCE(MAX(sequence_num), 0)::INT AS max_sequence_num
 FROM chatgpt_threads_rel

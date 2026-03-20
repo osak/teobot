@@ -16,6 +16,7 @@ EXECUTE FUNCTION set_updated_at();
 CREATE TABLE chatgpt_message_image_rel (
     chatgpt_message_id UUID NOT NULL REFERENCES chatgpt_messages(id),
     image_id UUID NOT NULL REFERENCES images(id),
+    position INT NOT NULL,
 
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP

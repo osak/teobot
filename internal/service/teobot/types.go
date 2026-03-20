@@ -21,7 +21,7 @@ const (
 
 type Thread struct {
 	ID       uuid.UUID
-	Messages []*Message
+	Messages []Message
 	RawMeta  map[ChannelType]any
 }
 

@@ -97,7 +97,7 @@ func (t *Teobot) buildPastThreadsWithUser(ctx context.Context, userName string) 
 	for _, thread := range historyThreads {
 		messages := make([]serializableMessage, 0, len(thread.Messages))
 		for _, message := range thread.Messages {
-			messages = append(messages, convertMessage(message))
+			messages = append(messages, convertMessage(&message))
 		}
 		threads = append(threads, messages)
 	}
@@ -112,7 +112,7 @@ func (t *Teobot) buildRecentMessages(ctx context.Context) ([]serializableMessage
 	}
 	messages := make([]serializableMessage, 0, len(rawMessages))
 	for _, rawMessage := range rawMessages {
-		messages = append(messages, convertMessage(rawMessage))
+		messages = append(messages, convertMessage(&rawMessage))
 	}
 	return messages, nil
 }
@@ -163,25 +163,21 @@ func (t *Teobot) buildSystemMessages(ctx context.Context, userName string) ([]ch
 }
 
 func (t *Teobot) buildCurrentThreadMessages(ctx context.Context, threadID uuid.UUID) ([]chatgpt.Message, error) {
-	rows, err := t.queries.GetFullChatgptMessagesByThreadId(ctx, threadID)
+	messages, err := t.repository.LoadMessagesInThread(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
 
-	messages := make([]chatgpt.Message, len(rows))
-	for i, row := range rows {
-		message, err := parseChatGptMessage(row)
-		if err != nil {
-			return nil, fmt.Errorf("parse message %s: %w", row.ID, err)
-		}
+	cgMessages := make([]chatgpt.Message, len(messages))
+	for i, message := range messages {
 		if message.User.Name == "teobot" {
-			messages[i] = message.ToChatGptMessage(chatgpt.RoleAssistant)
+			cgMessages[i] = message.ToChatGptMessage(chatgpt.RoleAssistant)
 		} else {
-			messages[i] = message.ToChatGptMessage(chatgpt.RoleUser)
+			cgMessages[i] = message.ToChatGptMessage(chatgpt.RoleUser)
 		}
 	}
 
-	return messages, nil
+	return cgMessages, nil
 }
 
 // Talk generates a bot response from the given context and the message to reply to.

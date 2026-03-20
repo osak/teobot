@@ -35,27 +35,6 @@ func splitMeta(content string) (string, string) {
 	return content, ""
 }
 
-func parseChatGptMessage(chatgptMessage db.ChatgptMessage) (Message, error) {
-	var dbMessage dbMessageBlob
-	if err := json.Unmarshal(chatgptMessage.JsonBody, &dbMessage); err != nil {
-		return Message{}, fmt.Errorf("failed to parse message %v: %w", chatgptMessage.ID, err)
-	}
-
-	text, rawMeta := splitMeta(dbMessage.Content)
-	msg := Message{
-		ID: chatgptMessage.ID,
-		User: &User{
-			Name: chatgptMessage.UserName,
-		},
-		Text:      text,
-		Timestamp: chatgptMessage.Timestamp.Time,
-		RawMeta: map[ChannelType]any{
-			ChannelTypeMastodon: rawMeta,
-		},
-	}
-	return msg, nil
-}
-
 func (t *Teobot) convertToChatGptMessage(message *Message) (*db.CreateChatgptMessageParams, error) {
 	id := message.ID
 	if id == uuid.Nil {
@@ -103,19 +82,11 @@ func (t *Teobot) loadConversationHistory(ctx context.Context, userName string) (
 
 	threads := make([]*Thread, 0, len(threadIds))
 	for _, threadId := range threadIds {
-		rows, err := t.queries.GetFullChatgptMessagesByThreadId(ctx, threadId)
+		messages, err := t.repository.LoadMessagesInThread(ctx, threadId)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch thread %s: %v", threadId, err)
+			return nil, fmt.Errorf("load thread %v: %w", threadId, err)
 		}
 
-		messages := make([]*Message, 0, len(rows))
-		for _, row := range rows {
-			msg, err := parseChatGptMessage(row)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse message for thread %s: %v", threadId, err)
-			}
-			messages = append(messages, &msg)
-		}
 		thread := Thread{
 			ID:       threadId,
 			Messages: messages,
@@ -125,20 +96,8 @@ func (t *Teobot) loadConversationHistory(ctx context.Context, userName string) (
 	return threads, nil
 }
 
-func (t *Teobot) loadRecentMessages(ctx context.Context) ([]*Message, error) {
-	rows, err := t.queries.GetRecentFullChatgptMessages(ctx, 50)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch recent thread ids: %v", err)
-	}
-	messages := make([]*Message, 0, len(rows))
-	for _, row := range rows {
-		message, err := parseChatGptMessage(row)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse message %v: %w", row.ID, err)
-		}
-		messages = append(messages, &message)
-	}
-	return messages, nil
+func (t *Teobot) loadRecentMessages(ctx context.Context) ([]Message, error) {
+	return t.repository.LoadRecentMessages(ctx, 50)
 }
 
 // ImportThread stores given thread in the DB.

@@ -51,7 +51,7 @@ func TestConvertToMessage(t *testing.T) {
 
 	binding := TeobotBinding{}
 	for i, tc := range testCases {
-		msg, err := binding.convertToMessage(&tc.status)
+		msg, err := binding.convertToMessage(&tc.status, &teobot.User{Name: "osa_k"})
 		if err != nil {
 			t.Errorf("failed at test %d: %+v", i, err)
 		}

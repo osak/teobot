@@ -238,18 +238,7 @@ func (t *Teobot) ForkThread(ctx context.Context, messageID uuid.UUID) (uuid.UUID
 // FindMessageByMastodonStatusID searches DB for the message entry corresponding to the given Mastodon status ID.
 // Returns the parsed Message object, or nil if not found.
 func (t *Teobot) FindMessageByMastodonStatusID(ctx context.Context, statusID string) (*Message, error) {
-	dbMessage, err := t.queries.FindChatgptMessageByMastodonStatusId(ctx, pgtype.Text{String: statusID, Valid: true})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	message, err := parseChatGptMessage(dbMessage)
-	if err != nil {
-		return nil, err
-	}
-	return &message, nil
+	return t.repository.LoadMessageByMastodonStatusID(ctx, statusID)
 }
 
 // FindOngoingThreadIDByMessageID finds the id of ongoing thread that has ended with the given message.

@@ -3,9 +3,12 @@ package teobot
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/osak/teobot/internal/db"
 )
 
@@ -33,6 +36,26 @@ func (r Repository) LoadMessagesInThread(ctx context.Context, threadID uuid.UUID
 		return nil, fmt.Errorf("load chatgpt messages: %w", err)
 	}
 	return r.hydrateChatGptMessages(ctx, chatGptMessages)
+}
+
+func (r Repository) LoadMessageByMastodonStatusID(ctx context.Context, statusID string) (*Message, error) {
+	dbMessage, err := r.queries.FindChatgptMessageByMastodonStatusId(ctx, pgtype.Text{String: statusID, Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return r.hydrateChatGptMessage(ctx, dbMessage)
+}
+
+func (r Repository) hydrateChatGptMessage(ctx context.Context, cgMessage db.ChatgptMessage) (*Message, error) {
+	arr := []db.ChatgptMessage{cgMessage}
+	res, err := r.hydrateChatGptMessages(ctx, arr)
+	if err != nil {
+		return nil, err
+	}
+	return &res[0], nil
 }
 
 func (r Repository) hydrateChatGptMessages(ctx context.Context, cgMessages []db.ChatgptMessage) ([]Message, error) {

@@ -91,11 +91,18 @@ func (t *TeobotBinding) convertToMessage(status *Status, user *teobot.User) (*te
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse status.CreatedAt `%s`: %w", status.CreatedAt, err)
 	}
+
+	imageUrls := make([]string, len(status.MediaAttachments))
+	for i, ma := range status.MediaAttachments {
+		imageUrls[i] = ma.URL
+	}
+
 	return &teobot.Message{
 		Text:         NormalizeStatusContent(status),
 		PrivacyLevel: getPrivacyLevel(status),
 		User:         user,
 		Timestamp:    timestamp,
+		ImageUrls:    imageUrls,
 		RawMeta: map[teobot.ChannelType]any{
 			teobot.ChannelTypeMastodon: map[string]string{
 				"status_id": status.ID,

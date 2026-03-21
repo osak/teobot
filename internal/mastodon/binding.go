@@ -91,11 +91,18 @@ func (t *TeobotBinding) convertToMessage(status *Status, user *teobot.User) (*te
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse status.CreatedAt `%s`: %w", status.CreatedAt, err)
 	}
+
+	imageUrls := make([]string, len(status.MediaAttachments))
+	for i, ma := range status.MediaAttachments {
+		imageUrls[i] = ma.URL
+	}
+
 	return &teobot.Message{
 		Text:         NormalizeStatusContent(status),
 		PrivacyLevel: getPrivacyLevel(status),
 		User:         user,
 		Timestamp:    timestamp,
+		ImageUrls:    imageUrls,
 		RawMeta: map[teobot.ChannelType]any{
 			teobot.ChannelTypeMastodon: map[string]string{
 				"status_id": status.ID,
@@ -157,7 +164,7 @@ func (t *TeobotBinding) ReconcileThread(ctx context.Context, statusId string) (u
 	}
 
 	// Build messages history from the thread
-	var messages []*teobot.Message
+	var messages []teobot.Message
 	for _, status := range tree.Ancestors {
 		user, err := t.resolveUser(ctx, &status.Account)
 		if err != nil {
@@ -169,7 +176,7 @@ func (t *TeobotBinding) ReconcileThread(ctx context.Context, statusId string) (u
 			slog.Error(fmt.Sprintf("Failed to convert status %s to Message: %v", status.ID, err))
 			continue
 		}
-		messages = append(messages, message)
+		messages = append(messages, *message)
 	}
 
 	thread := &teobot.Thread{

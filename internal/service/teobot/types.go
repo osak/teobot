@@ -21,7 +21,7 @@ const (
 
 type Thread struct {
 	ID       uuid.UUID
-	Messages []*Message
+	Messages []Message
 	RawMeta  map[ChannelType]any
 }
 
@@ -40,6 +40,7 @@ func (u *User) Equal(other *User) bool {
 type Message struct {
 	ID           uuid.UUID
 	Text         string
+	ImageUrls    []string
 	PrivacyLevel PrivacyLevel
 	User         *User
 	Timestamp    time.Time

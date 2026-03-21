@@ -10,9 +10,10 @@ import (
 )
 
 type Teobot struct {
-	chatGpt *chatgpt.ChatGpt
-	queries *db.Queries
-	pool    *pgxpool.Pool
+	chatGpt    *chatgpt.ChatGpt
+	queries    *db.Queries
+	pool       *pgxpool.Pool
+	repository *Repository
 	// user is an DB entity that represents the bot itself.
 	user *User
 }
@@ -27,11 +28,13 @@ func New(ctx context.Context, chatGpt *chatgpt.ChatGpt, queries *db.Queries, poo
 		ID:   row.ID,
 		Name: row.Name,
 	}
+	repository := NewRepository(queries)
 	return &Teobot{
-		chatGpt: chatGpt,
-		queries: queries,
-		pool:    pool,
-		user:    &user,
+		chatGpt:    chatGpt,
+		queries:    queries,
+		pool:       pool,
+		user:       &user,
+		repository: &repository,
 	}, nil
 }
 

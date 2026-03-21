@@ -2,7 +2,7 @@ package teobot
 
 import "testing"
 
-func TestFormatMessageAsInput(t *testing.T) {
+func TestToInputText(t *testing.T) {
 	type testCase struct {
 		message  Message
 		expected string
@@ -20,7 +20,7 @@ func TestFormatMessageAsInput(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		res := formatMessageAsInput(&tc.message)
+		res := tc.message.ToInputText()
 		if res != tc.expected {
 			t.Errorf("%d: text mismatch; expected %s, got %s", i, tc.expected, res)
 		}

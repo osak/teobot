@@ -94,3 +94,27 @@ WHERE mastodon_user_mappings.mastodon_account_id = $1;
 -- name: UpdateMastodonStatusId :exec
 UPDATE chatgpt_messages SET mastodon_status_id = $1
 WHERE id = $2;
+
+-- name: CreateImage :exec
+INSERT INTO images (id, url)
+VALUES($1, $2);
+
+-- name: CreateChatGptMessageImageRel :exec
+INSERT INTO chatgpt_message_image_rel (chatgpt_message_id, image_id, position)
+VALUES($1, $2, $3);
+
+-- name: GetImagesByChatGptMessageId :many
+SELECT images.*
+FROM images
+INNER JOIN chatgpt_message_image_rel AS cmir ON images.id = cmir.image_id
+WHERE cmir.chatgpt_message_id = $1;
+
+-- name: GetImagesByChatGptMessageIds :many
+SELECT
+    rel.chatgpt_message_id,
+    rel.image_id,
+    images.*
+FROM chatgpt_message_image_rel AS rel
+INNER JOIN images ON rel.image_id = images.id
+WHERE rel.chatgpt_message_id = ANY($1 :: UUID[])
+ORDER BY rel.chatgpt_message_id, rel.position;

@@ -16,6 +16,14 @@ type ChatGpt struct {
 	apiBase string
 }
 
+type Role string
+
+const (
+	RoleUser      Role = "user"
+	RoleAssistant Role = "assistant"
+	RoleSystem    Role = "system"
+)
+
 type OpenAIObject interface {
 }
 

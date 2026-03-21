@@ -91,6 +91,7 @@ func (app *app) runServer() error {
 
 func (app *app) doTalk(args []string) error {
 	fs := flag.NewFlagSet("talk", flag.ContinueOnError)
+	replyToStr := fs.String("reply-to", "", "Reply to message ID")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -100,7 +101,13 @@ func (app *app) doTalk(args []string) error {
 		return err
 	}
 
-	resp, err := app.teobot.Talk(context.Background(), uuid.Nil, &message)
+	slog.Info("Reply to", "replyToStr", *replyToStr)
+	var replyTo uuid.UUID
+	if *replyToStr != "" {
+		replyTo = uuid.MustParse(*replyToStr)
+	}
+
+	resp, err := app.teobot.Talk(context.Background(), replyTo, &message)
 	if err != nil {
 		return err
 	}
@@ -111,7 +118,7 @@ func (app *app) doTalk(args []string) error {
 func main() {
 	// Configure global logger
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.LevelDebug,
 	})))
 
 	app, err := NewApp()

@@ -262,7 +262,7 @@ func (t *Teobot) Talk(ctx context.Context, replyToMessageID uuid.UUID, message *
 	}
 
 	// Save the original message and response
-	if err = t.saveMessages(ctx, threadID, message, &resMsg); err != nil {
+	if err = t.repository.SaveMessages(ctx, threadID, *message, resMsg); err != nil {
 		return nil, fmt.Errorf("save messages: %w", err)
 	}
 

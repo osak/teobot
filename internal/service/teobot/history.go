@@ -2,8 +2,6 @@ package teobot
 
 import (
 	"context"
-	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -33,42 +31,6 @@ func splitMeta(content string) (string, string) {
 		return content[0:startTag], content[start:endTag]
 	}
 	return content, ""
-}
-
-func (t *Teobot) convertToChatGptMessage(message *Message) (*db.CreateChatgptMessageParams, error) {
-	id := message.ID
-	if id == uuid.Nil {
-		id = uuid.Must(uuid.NewV7())
-	}
-	messageType := "user_status"
-	if message.User.Name == t.user.Name {
-		messageType = "ai_response"
-	}
-	blob := dbMessageBlob{
-		Name:    message.User.Name,
-		Role:    messageType,
-		Content: message.Text,
-	}
-	jsonBody, err := json.Marshal(blob, jsontext.EscapeForHTML(false))
-	if err != nil {
-		return nil, err
-	}
-	var mastodonStatusID string
-	if meta, ok := message.RawMeta[ChannelTypeMastodon]; ok {
-		if metaMap, ok := meta.(map[string]string); ok {
-			mastodonStatusID = metaMap["status_id"]
-		}
-	}
-
-	return &db.CreateChatgptMessageParams{
-		ID:               id,
-		MessageType:      messageType,
-		JsonBody:         jsonBody,
-		UserName:         message.User.Name,
-		MastodonStatusID: pgtype.Text{String: mastodonStatusID, Valid: mastodonStatusID != ""},
-		Timestamp:        pgtype.Timestamptz{Time: message.Timestamp, Valid: true},
-		PrivacyLevel:     pgtype.Text{String: string(message.PrivacyLevel), Valid: true},
-	}, nil
 }
 
 func (t *Teobot) loadConversationHistory(ctx context.Context, userName string) ([]*Thread, error) {
@@ -108,76 +70,25 @@ func (t *Teobot) ImportThread(ctx context.Context, thread *Thread) (uuid.UUID, e
 		return uuid.Nil, fmt.Errorf("thread id must not be set, got %s", thread.ID)
 	}
 
-	// Start transaction
-	tx, err := t.pool.Begin(ctx)
+	var threadID uuid.UUID
+	err := t.repository.WithTransactionInLevel(ctx, pgx.Serializable, func(ctx context.Context) error {
+		dbThread, err := t.repository.CreateNewChatgptThread(ctx)
+		if err != nil {
+			return fmt.Errorf("create thread: %w", err)
+		}
+		threadID = dbThread.ID
+
+		// Save messages
+		if err := t.repository.SaveMessages(ctx, threadID, thread.Messages...); err != nil {
+			return fmt.Errorf("save messages: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return uuid.Nil, err
 	}
-	defer tx.Rollback(ctx)
-	qtx := t.queries.WithTx(tx)
 
-	// Create a new thread entry
-	dbThread, err := qtx.CreateChatgptThread(ctx, uuid.Must(uuid.NewV7()))
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("create thread: %w", err)
-	}
-
-	// Save messages and associate with the thread
-	for i, message := range thread.Messages {
-		// Create and save message entry
-		if message.ID != uuid.Nil {
-			return uuid.Nil, fmt.Errorf("message id must not be set, got %s", message.ID)
-		}
-		// TODO fix structure
-		blob := dbMessageBlob{
-			Role:    "user",
-			Content: message.Text,
-		}
-		if message.User.Name == "teobot" {
-			blob.Role = "assistant"
-		}
-		jsonBody, err := json.Marshal(blob)
-		if err != nil {
-			return uuid.Nil, err
-		}
-
-		params := db.CreateChatgptMessageParams{
-			ID:           uuid.Must(uuid.NewV7()),
-			MessageType:  "mastodon_status",
-			JsonBody:     jsonBody,
-			UserName:     message.User.Name,
-			Timestamp:    pgtype.Timestamptz{Time: message.Timestamp, Valid: true},
-			PrivacyLevel: pgtype.Text{String: string(message.PrivacyLevel), Valid: true},
-		}
-		mastodonMeta, ok := message.RawMeta[ChannelTypeMastodon]
-		if ok {
-			id := mastodonMeta.(map[string]string)["status_id"]
-			params.MastodonStatusID = pgtype.Text{String: id, Valid: true}
-		}
-
-		dbMessage, err := qtx.CreateChatgptMessage(ctx, params)
-		if err != nil {
-			slog.Error("Failed to save message to the database", "error", err)
-			continue
-		}
-
-		// Associate the message with the thread
-		if err := qtx.CreateChatgptThreadRel(ctx, db.CreateChatgptThreadRelParams{
-			ThreadID:         dbThread.ID,
-			ChatgptMessageID: dbMessage.ID,
-			SequenceNum:      int32(i + 1),
-		}); err != nil {
-			slog.Error("Failed to create a chatgpt thread relationship", "error", err)
-			continue
-		}
-		slog.Info("Created thread relationship", "threadID", dbThread.ID, "messageID", dbMessage.ID, "sequenceNum", i+1)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return uuid.Nil, err
-	}
-
-	return dbThread.ID, nil
+	return threadID, nil
 }
 
 // ForkThread creates a new thread forked at specified message. The new thread shares reply tree with the original
@@ -263,65 +174,6 @@ func (t *Teobot) FindOngoingThreadIDByMessageID(ctx context.Context, messageID u
 	}
 
 	return uuid.Nil, ErrNoThread
-}
-
-func (t *Teobot) saveMessages(ctx context.Context, threadID uuid.UUID, messages ...*Message) error {
-	tx, err := t.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	qtx := t.queries.WithTx(tx)
-
-	maxSeqNum, err := qtx.GetMaxSequenceNum(ctx, threadID)
-	if err != nil {
-		return err
-	}
-	for i, message := range messages {
-		seqNum := int(maxSeqNum) + i + 1
-		createMessageParams, err := t.convertToChatGptMessage(message)
-		if err != nil {
-			return fmt.Errorf("convert message %d: %w", i, err)
-		}
-
-		dbMessage, err := qtx.CreateChatgptMessage(ctx, *createMessageParams)
-		if err != nil {
-			return fmt.Errorf("insert message %d: %w", i, err)
-		}
-		err = qtx.CreateChatgptThreadRel(ctx, db.CreateChatgptThreadRelParams{
-			ThreadID:         threadID,
-			ChatgptMessageID: dbMessage.ID,
-			SequenceNum:      int32(seqNum),
-		})
-		if err != nil {
-			return fmt.Errorf("insert thread rel %d: %w", i, err)
-		}
-
-		// Save images
-		for i, imageUrl := range message.ImageUrls {
-			imageID := uuid.Must(uuid.NewV7())
-			err := qtx.CreateImage(ctx, db.CreateImageParams{
-				ID:  imageID,
-				Url: imageUrl,
-			})
-			if err != nil {
-				return fmt.Errorf("insert image %d: %w", i, err)
-			}
-			err = qtx.CreateChatGptMessageImageRel(ctx, db.CreateChatGptMessageImageRelParams{
-				ChatgptMessageID: dbMessage.ID,
-				ImageID:          imageID,
-				Position:         int32(i),
-			})
-			if err != nil {
-				return fmt.Errorf("insert image rel %d: %w", i, err)
-			}
-		}
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // RecordMastodonStatusID updates the DB to record in which Mastodon status the teobot response has been posted.

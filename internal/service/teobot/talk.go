@@ -240,9 +240,9 @@ func (t *Teobot) Talk(ctx context.Context, replyToMessageID uuid.UUID, message *
 	// Call ChatGPT to generate the response
 	req := chatgpt.ResponsesRequest{
 		Input: inputMessages,
-		Model: "gpt-5",
+		Model: "gpt-6.1-sol",
 		Reasoning: chatgpt.ReasoningEffort{
-			Effort: "minimal",
+			Effort: "low",
 		},
 	}
 	res, err := t.chatGpt.Responses(ctx, &req)
